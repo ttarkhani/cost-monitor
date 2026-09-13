@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Cost Monitor</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #0f1117;
+    color: #e6e6e6;
+    margin: 0 auto;
+    padding: 2rem;
+    max-width: 1400px;
+  }
+  h1 { font-size: 1.5rem; margin-bottom: 0.25rem; }
+  .subtitle { color: #9aa0a6; margin-bottom: 1.5rem; font-size: 0.9rem; }
+  .stats { display: flex; gap: 1rem; margin-bottom: 1.5rem; }
+  .stat-card { background: #1a1d27; border-radius: 8px; padding: 1rem 1.5rem; flex: 1; }
+  .stat-label { font-size: 0.8rem; color: #9aa0a6; }
+  .stat-value { font-size: 1.6rem; font-weight: 600; margin-top: 0.25rem; }
+  .alerts { background: #2a1a1a; border: 1px solid #5a2a2a; border-radius: 8px; padding: 1rem; margin-bottom: 1.5rem; }
+  .alerts.hidden { display: none; }
+  .alert-item { padding: 0.4rem 0; font-size: 0.9rem; }
+  .chart-container { background: #1a1d27; border-radius: 8px; padding: 1.5rem; }
+  .chart-wrapper { position: relative; height: 400px; }
+  .loading { color: #9aa0a6; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+
+<h1>Cost Monitor</h1>
+<div class="subtitle">AWS spend monitoring &amp; anomaly alerts — real account data</div>
+
+<div id="alerts" class="alerts hidden">
+  <strong>⚠ Anomalies detected</strong>
+  <div id="alerts-list"></div>
+</div>
+
+<div class="stats">
+  <div class="stat-card">
+    <div class="stat-label">Latest daily spend</div>
+    <div class="stat-value" id="stat-latest">—</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">30-day total</div>
+    <div class="stat-value" id="stat-total">—</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Days tracked</div>
+    <div class="stat-value" id="stat-days">—</div>
+  </div>
+</div>
+
+<div class="chart-container">
+  <div class="chart-wrapper">
+    <canvas id="costChart"></canvas>
+  </div>
+</div>
+
+<p class="loading" id="load-time"></p>
+
+<script>
+const paletteColors = ['#4f8cff', '#ff6b6b', '#51cf66', '#ffd43b', '#cc5de8', '#22b8cf', '#ff922b'];
+
+async function loadDashboard() {
+  const startTime = performance.now();
+
+  const [costsRes, alertsRes] = await Promise.all([
+    fetch('/api/costs'),
+    fetch('/api/alerts')
+  ]);
+  const costs = await costsRes.json();
+  const alerts = await alertsRes.json();
+
+  const loadMs = Math.round(performance.now() - startTime);
+  document.getElementById('load-time').textContent =
+    `Data loaded in ${loadMs}ms · ${costs.length} day(s) of history`;
+
+  renderAlerts(alerts);
+  renderStats(costs);
+  renderChart(costs);
+}
+
+function renderAlerts(alerts) {
+  const box = document.getElementById('alerts');
+  const list = document.getElementById('alerts-list');
+  if (!alerts.length) {
+    box.classList.add('hidden');
+    return;
+  }
+  box.classList.remove('hidden');
+  list.innerHTML = alerts.map(a =>
+    `<div class="alert-item">${a.date}: $${a.previous_cost.toFixed(2)} → $${a.current_cost.toFixed(2)} (+${a.increase_pct}%)</div>`
+  ).join('');
+}
+
+function renderStats(costs) {
+  if (!costs.length) return;
+  const latest = costs[costs.length - 1];
+  const total = costs.reduce((sum, c) => sum + c.total_cost, 0);
+  document.getElementById('stat-latest').textContent = `$${latest.total_cost.toFixed(2)}`;
+  document.getElementById('stat-total').textContent = `$${total.toFixed(2)}`;
+  document.getElementById('stat-days').textContent = costs.length;
+}
+
+function renderChart(costs) {
+  const labels = costs.map(c => c.date);
+  const serviceNames = [...new Set(costs.flatMap(c => Object.keys(c.services)))];
+
+  const datasets = serviceNames.map((service, i) => ({
+    label: service,
+    data: costs.map(c => c.services[service] || 0),
+    backgroundColor: paletteColors[i % paletteColors.length],
+  }));
+
+  new Chart(document.getElementById('costChart'), {
+    type: 'bar',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: { stacked: true, ticks: { color: '#9aa0a6' }, grid: { color: '#2a2d38' } },
+        y: { stacked: true, ticks: { color: '#9aa0a6' }, grid: { color: '#2a2d38' } }
+      },
+      plugins: { legend: { labels: { color: '#e6e6e6' } } }
+    }
+  });
+}
+
+loadDashboard();
+</script>
+
+</body>
+</html>
