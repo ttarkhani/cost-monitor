@@ -70,7 +70,8 @@ async function loadDashboard() {
     fetch('/api/costs'),
     fetch('/api/alerts')
   ]);
-  const costs = await costsRes.json();
+  const costsPayload = await costsRes.json();
+  const costs = costsPayload.data;
   const alerts = await alertsRes.json();
 
   const loadMs = Math.round(performance.now() - startTime);
