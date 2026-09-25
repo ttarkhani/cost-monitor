@@ -93,9 +93,13 @@ function renderAlerts(alerts) {
   box.classList.remove('hidden');
   list.innerHTML = alerts.map(a => {
     const label = a.level === 'service' ? a.service : 'Total spend';
-    const change = a.is_new
-      ? `new — $${a.current_cost.toFixed(2)}`
-      : `$${a.previous_cost.toFixed(2)} → $${a.current_cost.toFixed(2)} (+${a.increase_pct}%)`;
+    let change;
+    if (a.is_new) {
+      change = `new — $${a.current_cost.toFixed(2)}`;
+    } else {
+      const zText = a.modified_z !== null ? `z=${a.modified_z}` : 'zero-variance window';
+      change = `$${a.previous_cost.toFixed(2)} → $${a.current_cost.toFixed(2)}  (${zText})`;
+    }
     return `<div class="alert-item"><strong>${label}</strong> — ${a.date}: ${change}</div>`;
   }).join('');
 }
