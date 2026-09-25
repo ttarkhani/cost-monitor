@@ -1,25 +1,27 @@
 import boto3
 from datetime import datetime, timedelta
 from backend.db import get_snapshots
-from backend.alerts import detect_anomalies, _build_cost_series, _evaluate_series, MIN_WINDOW
+from backend.alerts import detect_anomalies, _build_cost_series, _evaluate_series
 
 sts = boto3.client('sts', region_name='us-east-1')
 ACCOUNT_ID = sts.get_caller_identity()['Account']
 
 
-def test_real_data_correctly_reports_insufficient_history():
+def test_real_data_gap_handling_and_no_false_anomalies():
     """
-    Real stored DynamoDB data currently has only 3 days. The MAD method
-    needs MIN_WINDOW + 2 days (currently 7) before it can produce a single
-    verdict. Confirms the detector correctly recognizes that and reports
-    nothing, rather than guessing on too little data.
+    Real stored DynamoDB data. run_fetch.py was run manually and
+    sporadically during development, not daily, so the real table has a
+    genuine gap in it. Confirms non-consecutive transitions are reported as
+    'gap_skipped' rather than silently corrupting the statistical baseline,
+    and that nothing gets flagged as an anomaly before there's enough real
+    consecutive-day history to judge fairly.
     """
     print("=" * 60)
-    print("TEST 1: Real stored data — expect correct 'insufficient history'")
+    print("TEST 1: Real stored data -- gap handling + no false anomalies")
     print("=" * 60)
 
     today = datetime.now().date()
-    start = (today - timedelta(days=30)).strftime('%Y-%m-%d')
+    start = (today - timedelta(days=60)).strftime('%Y-%m-%d')
     end = today.strftime('%Y-%m-%d')
     snapshots = get_snapshots(ACCOUNT_ID, start, end)
 
@@ -31,23 +33,29 @@ def test_real_data_correctly_reports_insufficient_history():
     evaluated = _evaluate_series(dates, costs)
     anomalies = detect_anomalies(snapshots)
 
-    print(f"\nDays evaluated: {len(evaluated)} (need {MIN_WINDOW + 1} prior deltas, "
-          f"have only {len(snapshots) - 1} delta(s) total)")
-    print(f"Anomalies returned: {len(anomalies)}")
+    gap_entries = [r for r in evaluated if r.get('status') == 'gap_skipped']
+    flagged = [r for r in evaluated if r.get('flagged')]
 
-    assert len(evaluated) == 0, "expected zero evaluated days with only 3 snapshots"
+    print(f"\n{len(evaluated)} transition(s) surfaced by _evaluate_series:")
+    for r in evaluated:
+        print(f"  {r['previous_date']} -> {r['date']}  delta={r['delta']:+.2f}  status={r['status']}")
+
+    assert len(flagged) == 0, f"expected nothing flagged with this little real history, got {len(flagged)}"
     assert len(anomalies) == 0
 
-    print("\nPASS: correctly reports nothing — not enough history for an honest verdict yet.")
-    print(f"Will start producing real verdicts once the account has {MIN_WINDOW + 2} real ingested days.")
+    print(f"\nGap(s) correctly detected: {len(gap_entries)}")
+    for g in gap_entries:
+        print(f"  {g['previous_date']} -> {g['date']}: {g['gap_days']} calendar days apart, excluded from the baseline")
+
+    print("\nPASS: no false anomalies, and any real gap in ingestion is surfaced")
+    print("explicitly rather than silently distorting the statistical baseline.")
 
 
 def test_per_service_attribution_synthetic():
     """
-    SYNTHETIC — 7 days, the minimum needed for exactly one verdict. RDS
-    appears only on the final day with a real jump; EC2 and S3 stay flat.
-    Confirms the anomaly is attributed to RDS specifically, and that EC2/S3
-    are correctly left alone.
+    SYNTHETIC -- 7 consecutive days, no gaps. RDS appears only on the final
+    day with a real jump; EC2 and S3 stay flat. Confirms attribution to RDS
+    specifically, and that EC2/S3 are correctly left alone.
     """
     print("\n" + "=" * 60)
     print("TEST 2: Synthetic per-service attribution (minimum 7-day window)")
@@ -85,7 +93,7 @@ def test_per_service_attribution_synthetic():
 
 
 if __name__ == '__main__':
-    test_real_data_correctly_reports_insufficient_history()
+    test_real_data_gap_handling_and_no_false_anomalies()
     test_per_service_attribution_synthetic()
     print("\n" + "=" * 60)
     print("ALL TESTS PASSED")
