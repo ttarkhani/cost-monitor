@@ -1,85 +1,106 @@
-def _compute_change(previous_cost, current_cost, pct_threshold, min_abs_increase):
-    """
-    Compare one cost value between two days and decide whether it's anomalous.
-    Returns None if not anomalous, or a dict describing the change if it is.
-    Shared by both the aggregate check and every per-service check, so both
-    use identical math and identical thresholds.
-    """
-    increase_abs = current_cost - previous_cost
+import statistics
 
-    if previous_cost == 0:
-        # Division by a previous cost of zero is undefined — treat this as
-        # its own case ("new service") rather than an infinite percentage.
-        if current_cost >= min_abs_increase:
-            return {
-                'previous_cost': round(previous_cost, 4),
-                'current_cost': round(current_cost, 4),
-                'increase_abs': round(increase_abs, 4),
-                'increase_pct': None,
-                'is_new': True,
-            }
-        return None
+Z_THRESHOLD = 3.5
+MIN_WINDOW = 5
+MIN_ABS_INCREASE = 1.0
 
-    increase_pct = increase_abs / previous_cost
-    if increase_abs >= min_abs_increase and increase_pct >= pct_threshold:
-        return {
-            'previous_cost': round(previous_cost, 4),
-            'current_cost': round(current_cost, 4),
-            'increase_abs': round(increase_abs, 4),
-            'increase_pct': round(increase_pct * 100, 1),
-            'is_new': False,
-        }
-    return None
+# Deltas below this are floating-point noise around an effectively-zero MAD,
+# not a real nonzero spread. Floating-point subtraction of two "equal"
+# decimal values (e.g. 6.30 - 5.00) can leave a residual as small as 1e-15
+# or 1e-16 instead of an exact 0.0. Comparing MAD to exactly 0.0 lets that
+# residual slip through and blows the z-score up to a meaningless,
+# astronomically large number instead of correctly triggering the
+# zero-variance fallback below. 1e-6 is comfortably above realistic
+# floating-point noise and comfortably below any real cent-level billing
+# variation.
+MAD_EPSILON = 1e-6
 
 
-def detect_anomalies(snapshots, pct_threshold=0.4, min_abs_increase=1.0, per_service=True):
-    """
-    Compare each pair of consecutive days and flag both:
-      - aggregate-level anomalies (total_cost jumped)
-      - per-service anomalies (one specific service jumped, or is new)
+def _modified_z_verdict(historical_deltas, today_delta,
+                         z_threshold=Z_THRESHOLD, min_window=MIN_WINDOW,
+                         min_abs_increase=MIN_ABS_INCREASE):
+    n = len(historical_deltas)
+    if n < min_window:
+        return {'flagged': False, 'status': 'insufficient_data',
+                'window_size': n, 'modified_z': None}
 
-    per_service=False reproduces the original aggregate-only behavior —
-    kept as an option so the two approaches can be directly compared
-    against identical data (see test_alerts.py).
+    if today_delta <= 0:
+        return {'flagged': False, 'status': 'normal',
+                'window_size': n, 'modified_z': None}
 
-    Decreases are never flagged: increase_abs would be <= 0, which always
-    fails the min_abs_increase check inside _compute_change.
-    """
+    median = statistics.median(historical_deltas)
+    abs_devs = [abs(d - median) for d in historical_deltas]
+    mad = statistics.median(abs_devs)
+
+    if mad < MAD_EPSILON:
+        # Same floating-point issue applies here: today's deviation and the
+        # window's largest prior deviation can be "conceptually" equal (the
+        # series has genuinely seen this exact delta before) but land as
+        # bit-different floats from unrelated subtraction chains, making a
+        # bare `>` comparison occasionally trip on noise. Requiring a clear
+        # margin above the noise floor avoids flagging a value the window
+        # has already effectively seen.
+        max_dev = max(abs_devs) if abs_devs else 0.0
+        today_dev = abs(today_delta - median)
+        flagged = today_delta >= min_abs_increase and today_dev > max_dev + MAD_EPSILON
+        return {'flagged': flagged, 'status': 'anomaly' if flagged else 'normal',
+                'window_size': n, 'modified_z': None, 'note': 'zero_variance_window'}
+
+    modified_z = 0.6745 * (today_delta - median) / mad
+    flagged = modified_z >= z_threshold and today_delta >= min_abs_increase
+    return {'flagged': flagged, 'status': 'anomaly' if flagged else 'normal',
+            'window_size': n, 'modified_z': round(modified_z, 2)}
+
+
+def _build_cost_series(snapshots, service_name=None):
+    dates = [s['date'] for s in snapshots]
+    if service_name is None:
+        costs = [float(s['total_cost']) for s in snapshots]
+    else:
+        costs = [float(s.get('services', {}).get(service_name, 0.0)) for s in snapshots]
+    return dates, costs
+
+
+def _evaluate_series(dates, costs, z_threshold=Z_THRESHOLD, min_window=MIN_WINDOW,
+                      min_abs_increase=MIN_ABS_INCREASE):
+    all_deltas = [costs[i] - costs[i - 1] for i in range(1, len(costs))]
+    results = []
+
+    for k in range(min_window, len(all_deltas)):
+        prior_deltas = all_deltas[:k]
+        today_delta = all_deltas[k]
+        verdict = _modified_z_verdict(prior_deltas, today_delta, z_threshold=z_threshold,
+                                       min_window=min_window, min_abs_increase=min_abs_increase)
+        results.append({
+            'day_index': k + 2,
+            'date': dates[k + 1],
+            'previous_date': dates[k],
+            'previous_cost': round(costs[k], 4),
+            'current_cost': round(costs[k + 1], 4),
+            'delta': round(today_delta, 4),
+            **verdict,
+        })
+    return results
+
+
+def detect_anomalies(snapshots, z_threshold=Z_THRESHOLD, min_window=MIN_WINDOW,
+                      min_abs_increase=MIN_ABS_INCREASE, per_service=True):
     anomalies = []
 
-    for i in range(1, len(snapshots)):
-        prev = snapshots[i - 1]
-        curr = snapshots[i]
+    dates, agg_costs = _build_cost_series(snapshots, service_name=None)
+    for v in _evaluate_series(dates, agg_costs, z_threshold=z_threshold,
+                               min_window=min_window, min_abs_increase=min_abs_increase):
+        if v['flagged']:
+            anomalies.append({'level': 'aggregate', 'service': None, **v})
 
-        prev_total = float(prev['total_cost'])
-        curr_total = float(curr['total_cost'])
-        agg_change = _compute_change(prev_total, curr_total, pct_threshold, min_abs_increase)
-        if agg_change:
-            anomalies.append({
-                'level': 'aggregate',
-                'service': None,
-                'date': curr['date'],
-                'previous_date': prev['date'],
-                **agg_change,
-            })
-
-        if not per_service:
-            continue
-
-        prev_services = {name: float(cost) for name, cost in prev.get('services', {}).items()}
-        curr_services = {name: float(cost) for name, cost in curr.get('services', {}).items()}
-
-        for service_name in sorted(set(prev_services) | set(curr_services)):
-            prev_cost = prev_services.get(service_name, 0.0)
-            curr_cost = curr_services.get(service_name, 0.0)
-            svc_change = _compute_change(prev_cost, curr_cost, pct_threshold, min_abs_increase)
-            if svc_change:
-                anomalies.append({
-                    'level': 'service',
-                    'service': service_name,
-                    'date': curr['date'],
-                    'previous_date': prev['date'],
-                    **svc_change,
-                })
+    if per_service:
+        service_names = sorted({name for s in snapshots for name in s.get('services', {})})
+        for name in service_names:
+            svc_dates, svc_costs = _build_cost_series(snapshots, service_name=name)
+            for v in _evaluate_series(svc_dates, svc_costs, z_threshold=z_threshold,
+                                       min_window=min_window, min_abs_increase=min_abs_increase):
+                if v['flagged']:
+                    v['is_new'] = v['previous_cost'] == 0.0
+                    anomalies.append({'level': 'service', 'service': name, **v})
 
     return anomalies

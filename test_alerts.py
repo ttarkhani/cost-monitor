@@ -1,21 +1,21 @@
 import boto3
 from datetime import datetime, timedelta
 from backend.db import get_snapshots
-from backend.alerts import detect_anomalies
+from backend.alerts import detect_anomalies, _build_cost_series, _evaluate_series, MIN_WINDOW
 
 sts = boto3.client('sts', region_name='us-east-1')
 ACCOUNT_ID = sts.get_caller_identity()['Account']
 
 
-def test_against_real_stored_data():
+def test_real_data_correctly_reports_insufficient_history():
     """
-    Runs the per-service-aware detector against the real snapshots already
-    stored in DynamoDB. Confirms it surfaces something the old aggregate-only
-    version couldn't: that RDS specifically — not EC2 or S3 — caused the
-    total to spike on 2026-09-13.
+    Real stored DynamoDB data currently has only 3 days. The MAD method
+    needs MIN_WINDOW + 2 days (currently 7) before it can produce a single
+    verdict. Confirms the detector correctly recognizes that and reports
+    nothing, rather than guessing on too little data.
     """
     print("=" * 60)
-    print("TEST 1: Real stored DynamoDB data")
+    print("TEST 1: Real stored data — expect correct 'insufficient history'")
     print("=" * 60)
 
     today = datetime.now().date()
@@ -23,69 +23,70 @@ def test_against_real_stored_data():
     end = today.strftime('%Y-%m-%d')
     snapshots = get_snapshots(ACCOUNT_ID, start, end)
 
-    print(f"\nLoaded {len(snapshots)} snapshots:")
+    print(f"\nLoaded {len(snapshots)} real snapshots:")
     for s in snapshots:
-        print(f"  {s['date']}: ${float(s['total_cost']):.2f}  {dict(s['services'])}")
+        print(f"  {s['date']}: ${float(s['total_cost']):.2f}")
 
-    anomalies = detect_anomalies(snapshots, pct_threshold=0.4, min_abs_increase=1.0)
+    dates, costs = _build_cost_series(snapshots, service_name=None)
+    evaluated = _evaluate_series(dates, costs)
+    anomalies = detect_anomalies(snapshots)
 
-    print(f"\nDetected {len(anomalies)} anomalies:\n")
-    for a in anomalies:
-        if a['level'] == 'aggregate':
-            print(f"  [AGGREGATE] {a['date']}: ${a['previous_cost']:.2f} -> ${a['current_cost']:.2f} "
-                  f"(+{a['increase_pct']}%)")
-        else:
-            tag = "NEW SERVICE" if a['is_new'] else "SPIKE"
-            pct = f"+{a['increase_pct']}%" if a['increase_pct'] is not None else "n/a (new)"
-            print(f"  [SERVICE:{a['service']}] {tag} on {a['date']}: "
-                  f"${a['previous_cost']:.2f} -> ${a['current_cost']:.2f} ({pct})")
+    print(f"\nDays evaluated: {len(evaluated)} (need {MIN_WINDOW + 1} prior deltas, "
+          f"have only {len(snapshots) - 1} delta(s) total)")
+    print(f"Anomalies returned: {len(anomalies)}")
 
-    assert len(anomalies) == 2, f"expected 2 anomalies, got {len(anomalies)}"
-    assert any(a['level'] == 'aggregate' for a in anomalies)
-    assert any(a['level'] == 'service' and a['service'] == 'Amazon RDS' and a['is_new'] for a in anomalies)
+    assert len(evaluated) == 0, "expected zero evaluated days with only 3 snapshots"
+    assert len(anomalies) == 0
 
-    print("\nPASS: aggregate spike still detected, AND now correctly attributed to RDS specifically.")
+    print("\nPASS: correctly reports nothing — not enough history for an honest verdict yet.")
+    print(f"Will start producing real verdicts once the account has {MIN_WINDOW + 2} real ingested days.")
 
 
-def test_cancellation_masking_synthetic():
+def test_per_service_attribution_synthetic():
     """
-    SYNTHETIC test — not real billing data, clearly constructed to prove a
-    specific point: a service can spike while the account total looks
-    unremarkable, if something else drops at the same time. Per-service
-    detection catches this; aggregate-only cannot, by construction.
+    SYNTHETIC — 7 days, the minimum needed for exactly one verdict. RDS
+    appears only on the final day with a real jump; EC2 and S3 stay flat.
+    Confirms the anomaly is attributed to RDS specifically, and that EC2/S3
+    are correctly left alone.
     """
     print("\n" + "=" * 60)
-    print("TEST 2: Synthetic cancellation-masking scenario")
+    print("TEST 2: Synthetic per-service attribution (minimum 7-day window)")
     print("=" * 60)
 
-    synthetic_snapshots = [
-        {'date': '2099-01-01', 'total_cost': 20.00,
-         'services': {'Amazon EC2': 10.00, 'Amazon S3': 10.00}},
-        {'date': '2099-01-02', 'total_cost': 21.00,  # only +5% overall
-         'services': {'Amazon EC2': 15.00, 'Amazon S3': 6.00}},  # EC2 +50%, S3 -40%
+    dates = [f"2099-01-{i+1:02d}" for i in range(7)]
+    ec2 = [3.00, 3.05, 2.95, 3.00, 3.10, 2.95, 3.00]
+    s3 = [2.00, 2.05, 1.95, 2.00, 2.10, 1.95, 2.00]
+    rds = [0, 0, 0, 0, 0, 0, 8.00]
+
+    snapshots = [
+        {'date': dates[i], 'total_cost': ec2[i] + s3[i] + rds[i],
+         'services': {'Amazon EC2': ec2[i], 'Amazon S3': s3[i],
+                       **({'Amazon RDS': rds[i]} if rds[i] > 0 else {})}}
+        for i in range(7)
     ]
 
-    print("\nScenario: total spend moves +5% (unremarkable), but EC2 alone jumped +50%")
-    print("while S3 dropped at the same time, masking it in the total.\n")
+    print("\nRDS appears for the first time on day 7 with a real jump to $8.00.")
+    print("EC2 and S3 stay within normal noise the whole time.\n")
 
-    old_style = detect_anomalies(synthetic_snapshots, pct_threshold=0.4, min_abs_increase=1.0, per_service=False)
-    new_style = detect_anomalies(synthetic_snapshots, pct_threshold=0.4, min_abs_increase=1.0, per_service=True)
+    anomalies = detect_anomalies(snapshots)
 
-    print(f"OLD (aggregate-only) detected: {len(old_style)} anomalies")
-    print(f"NEW (per-service)     detected: {len(new_style)} anomalies")
+    for a in anomalies:
+        label = a['service'] if a['level'] == 'service' else 'Total spend'
+        print(f"  [{a['level'].upper()}:{label}] day {a['day_index']}: "
+              f"${a['previous_cost']:.2f} -> ${a['current_cost']:.2f}  "
+              f"z={a['modified_z']}  is_new={a.get('is_new')}")
 
-    assert len(old_style) == 0, "aggregate-only should NOT catch this — that's the whole point"
-    assert len(new_style) == 1
-    assert new_style[0]['level'] == 'service' and new_style[0]['service'] == 'Amazon EC2'
+    flagged_services = {a['service'] for a in anomalies if a['level'] == 'service'}
+    assert flagged_services == {'Amazon RDS'}, f"expected only RDS flagged, got {flagged_services}"
+    assert any(a['level'] == 'aggregate' for a in anomalies)
 
-    print("\nPASS: old logic misses the EC2 spike entirely. New logic catches it:")
-    print(f"  -> [SERVICE:{new_style[0]['service']}] +{new_style[0]['increase_pct']}%, "
-          f"${new_style[0]['previous_cost']:.2f} -> ${new_style[0]['current_cost']:.2f}")
+    print("\nPASS: RDS correctly flagged as new, EC2 and S3 correctly left alone,")
+    print("aggregate also flagged (driven entirely by RDS).")
 
 
 if __name__ == '__main__':
-    test_against_real_stored_data()
-    test_cancellation_masking_synthetic()
+    test_real_data_correctly_reports_insufficient_history()
+    test_per_service_attribution_synthetic()
     print("\n" + "=" * 60)
     print("ALL TESTS PASSED")
     print("=" * 60)

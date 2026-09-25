@@ -65,7 +65,7 @@ def api_costs():
 @app.route('/api/alerts')
 def api_alerts():
     snapshots, _ = _fetch_last_30_days()
-    anomalies = detect_anomalies(snapshots, pct_threshold=0.4, min_abs_increase=1.0)
+    anomalies = detect_anomalies(snapshots)
     return jsonify(anomalies)
 
 
