@@ -4,7 +4,7 @@ AWS cost monitoring and anomaly-alerting system, built on real billing data pull
 
 This is a monitoring and alerting tool — it does not claim or estimate cost savings. If a genuine optimization is ever found and fixed in the account it monitors, the before/after numbers would be documented here. Until then, every number below describes the system's own verified behavior — load times, a real confusion matrix, a real Lambda invocation, a real received email — not money saved, and not invented.
 
-**Data provenance, stated plainly:** the monitored AWS account is on the free tier. Real Cost Explorer ingestion began on 2026-09-23, and real daily spend since then has been $0.00 or sub-cent on every day observed, far below the detector's $1.00 minimum-increase floor. There are therefore **no real anomalies** in this project's history, and every anomaly-detection result quoted here comes from synthetic, hand-constructed test data, labeled as such.
+**Data provenance, stated plainly:** the monitored AWS account is on the free tier. Real Cost Explorer ingestion began on 2026-09-23, and real daily **net** spend as reported by Cost Explorer has been $0.00 or sub-cent on every day observed, far below the detector's $1.00 minimum-increase floor. "Net" matters: the pipeline does not filter out credits or refunds, and this account is funded by AWS credits, so these figures are after credits. They do not show that gross usage was zero (see Known limitations). There are therefore **no real anomalies** in this project's history, and every anomaly-detection result quoted here comes from synthetic, hand-constructed test data, labeled as such.
 
 ## Architecture
 
@@ -68,7 +68,7 @@ Measured on this project, not estimated.
 | Cache hit rate (early testing, small sample) | 33.3% (1 hit / 2 misses) |
 | Anomaly detection — per-service synthetic suite (`test_service_validation.py`) | 8 multi-service scenarios, 164 judgments: 6 true positives, 1 false positive, 157 true negatives, 0 false negatives. Precision 0.857, recall 1.000, false positive rate 0.006. The false positive is a service's recovery back to normal the day after a one-day dip (see Known limitations) |
 | Anomaly detection — aggregate synthetic validation suite | 3/3 true positives, 0 false positives, 0 false negatives, across 5 scenarios (38 total judgments). Precision 1.000, recall 1.000, false positive rate 0.000 |
-| Anomaly detection — real account data | No real anomalies exist to detect: real daily spend has been $0.00 or sub-cent since ingestion began on 2026-09-23, below the $1.00 minimum-increase floor. All anomaly-detection results in this README are synthetic |
+| Anomaly detection — real account data | No real anomalies exist to detect: real daily net spend as reported by Cost Explorer (after credits) has been $0.00 or sub-cent since ingestion began on 2026-09-23, below the $1.00 minimum-increase floor. All anomaly-detection results in this README are synthetic |
 | Real AWS cost data ingested | Daily since 2026-09-23 (Cost Explorer, grouped by service). Earlier rows that once appeared in the table (2026-09-11 to 2026-09-13) were synthetic fixtures written by `test_db.py`, not real billing data |
 | AWS Lambda invocation, verified end-to-end | Duration 518.77ms (1398ms billed, including cold-start init), 102MB of 256MB memory used. Real CloudWatch Logs and a real DynamoDB write confirmed, not just a returned success code |
 | SNS alert delivery | Confirmed: a real test alert was received in a real inbox, subject and body matching exactly what the code generates |
@@ -77,6 +77,10 @@ Measured on this project, not estimated.
 - Stable baseline, single real spike, organic multi-day growth (should *not* be flagged, even though each day individually clears the dollar floor), near-zero free-tier-style noise with one real jump, and a real missed-ingestion gap followed by a real anomaly 4 days later — all correctly handled
 - This is explicitly synthetic, hand-constructed ground truth — not real production incidents. A clean result here means the method is *correct on these known cases*, not a claim that it will be perfect on arbitrary future real data
 - Real account data hasn't produced a genuine verdict yet simply because there isn't enough of it — the detector is built to say nothing rather than guess on too little history
+
+## Cost to run
+
+The only part of this project with a per-call charge is the Cost Explorer API: **$0.01 per request** ([AWS Cost Explorer pricing](https://aws.amazon.com/aws-cost-management/aws-cost-explorer/pricing/)), and each paginated request counts as a request ([AWS docs](https://docs.aws.amazon.com/cost-management/latest/userguide/ce-what-is.html): "Each paginated API request incurs a charge of $0.01"). `backend/cost_fetcher.py` makes exactly one `GetCostAndUsage` call per pipeline run, so the daily schedule costs about **$0.30 per month**, plus $0.01 for each manual `run_fetch.py` run. That is covered by this account's AWS credits. The dashboard never calls Cost Explorer; it reads DynamoDB.
 
 ## Setup
 
@@ -192,7 +196,7 @@ They respond with `{"data": ..., "meta": {...}, "synthetic": true|false}`; `meta
 
 ![Dashboard in demo mode](docs/dashboard.png)
 
-*Demo mode: **synthetic data**, not real AWS billing. Captured with headless Chrome from the running app. The real account is free tier and its live view is near-zero.*
+*Demo mode: **synthetic data**, not real AWS billing. Captured with headless Chrome from the running app. The real account is free tier and its live view (net spend, after credits) is near-zero.*
 
 ## Challenges & how they were solved
 
@@ -208,13 +212,16 @@ They respond with `{"data": ..., "meta": {...}, "synthetic": true|false}`; `meta
 
 ## Known limitations
 
-- The monitored account is free tier: real spend has been $0.00 or sub-cent on every day since real ingestion began on 2026-09-23. The detector has never seen a real anomaly, and all anomaly-detection validation in this project is synthetic.
+- The monitored account is free tier: real net spend as reported by Cost Explorer has been $0.00 or sub-cent on every day since real ingestion began on 2026-09-23. The detector has never seen a real anomaly, and all anomaly-detection validation in this project is synthetic.
+- Stored figures are **net, not gross**. `cost_fetcher.py` calls `GetCostAndUsage` (`UnblendedCost`, grouped by service) with no `RECORD_TYPE` filter, so results include every charge type Cost Explorer reports. AWS lists those as including **Credit** and **Refund** ([charge types](https://docs.aws.amazon.com/cost-management/latest/userguide/ce-filtering.html); `RECORD_TYPE` in the [API reference](https://docs.aws.amazon.com/cli/latest/reference/ce/get-dimension-values.html)). On this credit-funded account, the numbers are after credits and do not show gross usage. The fetcher also keeps only services whose amount is above zero, so a service whose net amount is zero or negative is left out. Switching to gross figures (excluding credits and refunds) would make new rows incomparable with existing ones, creating a discontinuity in the stored history and in the detector's baseline.
+- `cost_fetcher.py` does not follow `NextPageToken`. It reads only the first page of the `GetCostAndUsage` response, so if AWS ever split a day's response across pages ([API reference](https://docs.aws.amazon.com/aws-cost-management/latest/APIReference/API_GetCostAndUsage.html): the token is returned "when the response from a previous call has more results than the maximum page size"), the stored snapshot would be truncated: services missing and the total understated.
 - Local and scheduled execution both run under non-root, purpose-built IAM identities, and the root account has no access keys (see Security model). The remaining gap: the day-to-day `cost-monitor-dev` user still holds the one-time provisioning permissions (IAM role creation and `iam:PassRole`, Lambda, EventBridge). Because it can rewrite `cost-monitor-lambda-role`'s policies (`iam:PutRolePolicy` / `iam:AttachRolePolicy`, with no limit on which policy) and update and invoke the function, it could widen that role's permissions and run code under it. A stricter setup would split provisioning into a separate identity, used only during setup, from the runtime identity used every day.
 - Detection constants (`Z_THRESHOLD=3.5`, `MIN_WINDOW=5`, `MIN_ABS_INCREASE=$1.00`, `MAD_EPSILON=1e-6`) and cache TTL (60s) are hardcoded, not exposed as runtime config.
 - The detection baseline is every valid consecutive-day change inside the 60-day `HISTORY_DAYS` window (shared by the pipeline and the dashboard), not a separately tuned rolling window.
 - The pipeline emails only anomalies dated the day it just ingested, so an anomaly is alerted once rather than every day it stays in the window. Re-running the pipeline manually for the same date re-ingests that date and can re-alert for it.
 - Cost Explorer data can change after the pipeline reads it: AWS documents that Cost Explorer "refreshes your cost data at least once every 24 hours" and that "some data might be updated later than 24 hours" ([AWS docs](https://docs.aws.amazon.com/cost-management/latest/userguide/ce-what-is.html)). The pipeline ingests each day once and never re-fetches it, so later revisions to a stored day are not picked up.
-- Per-service detection has been validated only on synthetic data (precision 0.857, recall 1.000 across 8 scenarios). The one false positive shows a real limitation: each increase is judged on its own, so a service that dips for one day and then returns to normal gets its recovery flagged as a spike.
+- Per-service detection has been validated only on synthetic data: precision 0.857, recall 1.000, false positive rate 0.006 across 8 scenarios (164 judgments, `test_service_validation.py`). The one false positive shows a real limitation: each increase is judged on its own, so when a service dips for one day and then returns to normal, its **recovery is flagged as a spike**.
+- **Zero-variance windows can hide a repeat spike.** When all earlier day-to-day changes are identical, the median absolute deviation is zero and the detector falls back to flagging only an increase larger than every earlier deviation. In that mode, an earlier spike (and the drop after it) raises the bar, so a later spike of the same size is **missed**. Found while writing `test_pipeline.py` with a short repeating noise pattern; the detector (`backend/alerts.py`) is unchanged, and that test uses irregular noise.
 - EventBridge's *unattended* daily trigger — as opposed to a manual/verification invoke — hasn't been directly observed firing on its own yet as of this writing. The rule, target, and invoke permission are all confirmed correctly configured, and AWS's own mechanics mean it should fire on schedule, but that specific claim is still pending its first real, hands-off occurrence.
 - Single AWS account only — no consolidated billing / multi-account support.
 - Runs on Flask's built-in dev server, not a production WSGI server — this applies to the dashboard-viewing experience only; the actual scheduled ingestion pipeline runs on real AWS Lambda infrastructure, not Flask.
