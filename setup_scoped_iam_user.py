@@ -22,14 +22,16 @@ def ensure_user():
 
 def attach_scoped_policy():
     """
-    Covers exactly what this project's LOCAL credentials touch: the
-    routine app/pipeline (Cost Explorer, DynamoDB, SNS, STS) plus the
-    one-time setup scripts (IAM role + Lambda + EventBridge provisioning).
-    Every action is scoped to this project's specific named resources,
-    not '*' -- with one deliberate exception worth naming: iam:PassRole
-    is scoped to ONLY the cost-monitor-lambda-role ARN, specifically to
-    avoid the well-documented PassRole + CreateFunction privilege-
-    escalation pattern that comes from leaving PassRole unscoped.
+    Policy for the dev user (local runs plus one-time provisioning).
+    Statements are scoped to this project's named resources, except
+    ce:GetCostAndUsage and sts:GetCallerIdentity, which do not support
+    resource-level scoping and use "*". iam:PassRole is limited to the
+    single Lambda role. Known limitation: scoping PassRole does not by
+    itself make this policy escalation-proof. The user can also modify
+    that one role (AttachRolePolicy, PutRolePolicy) and update and invoke
+    the function that runs under it, so it can widen what the role may
+    do. A stricter setup would split provisioning from day-to-day runtime
+    identities, or cap the role with a permissions boundary.
     """
     policy = {
         "Version": "2012-10-17",
