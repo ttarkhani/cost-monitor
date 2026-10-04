@@ -1,0 +1,512 @@
+{
+ "_note": "SYNTHETIC demo-mode API responses recorded by test_contract.py with today pinned to 2026-10-04. Not real AWS data.",
+ "alerts": {
+  "data": [
+   {
+    "current_cost": 15.83,
+    "date": "2026-09-19",
+    "day_index": 29,
+    "delta": 8.16,
+    "flagged": true,
+    "level": "aggregate",
+    "modified_z": 44.03,
+    "previous_cost": 7.67,
+    "previous_date": "2026-09-18",
+    "service": null,
+    "status": "anomaly",
+    "window_size": 26
+   },
+   {
+    "current_cost": 11.21,
+    "date": "2026-09-27",
+    "day_index": 37,
+    "delta": 3.31,
+    "flagged": true,
+    "level": "aggregate",
+    "modified_z": 18.6,
+    "previous_cost": 7.9,
+    "previous_date": "2026-09-26",
+    "service": null,
+    "status": "anomaly",
+    "window_size": 34
+   },
+   {
+    "current_cost": 3.21,
+    "date": "2026-09-27",
+    "day_index": 37,
+    "delta": 3.21,
+    "flagged": true,
+    "is_new": true,
+    "level": "service",
+    "modified_z": null,
+    "note": "zero_variance_window",
+    "previous_cost": 0.0,
+    "previous_date": "2026-09-26",
+    "service": "Amazon CloudWatch",
+    "status": "anomaly",
+    "window_size": 34
+   },
+   {
+    "current_cost": 12.17,
+    "date": "2026-09-19",
+    "day_index": 29,
+    "delta": 8.11,
+    "flagged": true,
+    "is_new": false,
+    "level": "service",
+    "modified_z": 54.7,
+    "previous_cost": 4.06,
+    "previous_date": "2026-09-18",
+    "service": "Amazon EC2",
+    "status": "anomaly",
+    "window_size": 26
+   }
+  ],
+  "meta": {
+   "days": 60,
+   "history_days": 60,
+   "mode": "demo",
+   "source": "demo",
+   "today_utc": "2026-10-04",
+   "view_start": "2026-08-05"
+  },
+  "synthetic": true
+ },
+ "costs": {
+  "data": [
+   {
+    "date": "2026-08-20",
+    "services": {
+     "Amazon EC2": 4.15,
+     "Amazon RDS": 2.56,
+     "Amazon S3": 1.13
+    },
+    "total_cost": 7.84
+   },
+   {
+    "date": "2026-08-21",
+    "services": {
+     "Amazon EC2": 4.2,
+     "Amazon RDS": 2.5,
+     "Amazon S3": 1.11
+    },
+    "total_cost": 7.81
+   },
+   {
+    "date": "2026-08-22",
+    "services": {
+     "Amazon EC2": 4.3,
+     "Amazon RDS": 2.6,
+     "Amazon S3": 1.06
+    },
+    "total_cost": 7.96
+   },
+   {
+    "date": "2026-08-23",
+    "services": {
+     "Amazon EC2": 4.26,
+     "Amazon RDS": 2.51,
+     "Amazon S3": 1.09
+    },
+    "total_cost": 7.86
+   },
+   {
+    "date": "2026-08-24",
+    "services": {
+     "Amazon EC2": 4.3,
+     "Amazon RDS": 2.68,
+     "Amazon S3": 1.09
+    },
+    "total_cost": 8.07
+   },
+   {
+    "date": "2026-08-25",
+    "services": {
+     "Amazon EC2": 4.1,
+     "Amazon RDS": 2.63,
+     "Amazon S3": 1.13
+    },
+    "total_cost": 7.86
+   },
+   {
+    "date": "2026-08-26",
+    "services": {
+     "Amazon EC2": 4.22,
+     "Amazon RDS": 2.58,
+     "Amazon S3": 1.07
+    },
+    "total_cost": 7.87
+   },
+   {
+    "date": "2026-08-27",
+    "services": {
+     "Amazon EC2": 4.07,
+     "Amazon RDS": 2.69,
+     "Amazon S3": 1.1
+    },
+    "total_cost": 7.86
+   },
+   {
+    "date": "2026-08-28",
+    "services": {
+     "Amazon EC2": 4.29,
+     "Amazon RDS": 2.69,
+     "Amazon S3": 1.06
+    },
+    "total_cost": 8.04
+   },
+   {
+    "date": "2026-08-29",
+    "services": {
+     "Amazon EC2": 4.28,
+     "Amazon RDS": 2.53,
+     "Amazon S3": 1.1
+    },
+    "total_cost": 7.91
+   },
+   {
+    "date": "2026-08-30",
+    "services": {
+     "Amazon EC2": 4.18,
+     "Amazon RDS": 2.51,
+     "Amazon S3": 1.07
+    },
+    "total_cost": 7.76
+   },
+   {
+    "date": "2026-08-31",
+    "services": {
+     "Amazon EC2": 4.12,
+     "Amazon RDS": 2.55,
+     "Amazon S3": 1.11
+    },
+    "total_cost": 7.78
+   },
+   {
+    "date": "2026-09-01",
+    "services": {
+     "Amazon EC2": 4.12,
+     "Amazon RDS": 2.51,
+     "Amazon S3": 1.1
+    },
+    "total_cost": 7.73
+   },
+   {
+    "date": "2026-09-02",
+    "services": {
+     "Amazon EC2": 4.12,
+     "Amazon RDS": 2.67,
+     "Amazon S3": 1.11
+    },
+    "total_cost": 7.9
+   },
+   {
+    "date": "2026-09-03",
+    "services": {
+     "Amazon EC2": 4.22,
+     "Amazon RDS": 2.54,
+     "Amazon S3": 1.06
+    },
+    "total_cost": 7.82
+   },
+   {
+    "date": "2026-09-04",
+    "services": {
+     "Amazon EC2": 4.31,
+     "Amazon RDS": 2.51,
+     "Amazon S3": 1.12
+    },
+    "total_cost": 7.94
+   },
+   {
+    "date": "2026-09-05",
+    "services": {
+     "Amazon EC2": 4.17,
+     "Amazon RDS": 2.69,
+     "Amazon S3": 1.09
+    },
+    "total_cost": 7.95
+   },
+   {
+    "date": "2026-09-06",
+    "services": {
+     "Amazon EC2": 4.3,
+     "Amazon RDS": 2.6,
+     "Amazon S3": 1.12
+    },
+    "total_cost": 8.02
+   },
+   {
+    "date": "2026-09-09",
+    "services": {
+     "Amazon EC2": 4.29,
+     "Amazon RDS": 2.69,
+     "Amazon S3": 1.1
+    },
+    "total_cost": 8.08
+   },
+   {
+    "date": "2026-09-10",
+    "services": {
+     "Amazon EC2": 4.05,
+     "Amazon RDS": 2.57,
+     "Amazon S3": 1.07
+    },
+    "total_cost": 7.69
+   },
+   {
+    "date": "2026-09-11",
+    "services": {
+     "Amazon EC2": 4.26,
+     "Amazon RDS": 2.57,
+     "Amazon S3": 1.06
+    },
+    "total_cost": 7.89
+   },
+   {
+    "date": "2026-09-12",
+    "services": {
+     "Amazon EC2": 4.28,
+     "Amazon RDS": 2.66,
+     "Amazon S3": 1.12
+    },
+    "total_cost": 8.06
+   },
+   {
+    "date": "2026-09-13",
+    "services": {
+     "Amazon EC2": 4.23,
+     "Amazon RDS": 2.5,
+     "Amazon S3": 1.13
+    },
+    "total_cost": 7.86
+   },
+   {
+    "date": "2026-09-14",
+    "services": {
+     "Amazon EC2": 4.22,
+     "Amazon RDS": 2.68,
+     "Amazon S3": 1.11
+    },
+    "total_cost": 8.01
+   },
+   {
+    "date": "2026-09-15",
+    "services": {
+     "Amazon EC2": 4.24,
+     "Amazon RDS": 2.62,
+     "Amazon S3": 1.1
+    },
+    "total_cost": 7.96
+   },
+   {
+    "date": "2026-09-16",
+    "services": {
+     "Amazon EC2": 4.11,
+     "Amazon RDS": 2.67,
+     "Amazon S3": 1.06
+    },
+    "total_cost": 7.84
+   },
+   {
+    "date": "2026-09-17",
+    "services": {
+     "Amazon EC2": 4.22,
+     "Amazon RDS": 2.6,
+     "Amazon S3": 1.14
+    },
+    "total_cost": 7.96
+   },
+   {
+    "date": "2026-09-18",
+    "services": {
+     "Amazon EC2": 4.06,
+     "Amazon RDS": 2.52,
+     "Amazon S3": 1.09
+    },
+    "total_cost": 7.67
+   },
+   {
+    "date": "2026-09-19",
+    "services": {
+     "Amazon EC2": 12.17,
+     "Amazon RDS": 2.54,
+     "Amazon S3": 1.12
+    },
+    "total_cost": 15.83
+   },
+   {
+    "date": "2026-09-20",
+    "services": {
+     "Amazon EC2": 4.36,
+     "Amazon RDS": 2.54,
+     "Amazon S3": 1.09
+    },
+    "total_cost": 7.99
+   },
+   {
+    "date": "2026-09-21",
+    "services": {
+     "Amazon EC2": 4.16,
+     "Amazon RDS": 2.69,
+     "Amazon S3": 1.07
+    },
+    "total_cost": 7.92
+   },
+   {
+    "date": "2026-09-22",
+    "services": {
+     "Amazon EC2": 4.04,
+     "Amazon RDS": 2.67,
+     "Amazon S3": 1.09
+    },
+    "total_cost": 7.8
+   },
+   {
+    "date": "2026-09-23",
+    "services": {
+     "Amazon EC2": 4.04,
+     "Amazon RDS": 2.7,
+     "Amazon S3": 1.08
+    },
+    "total_cost": 7.82
+   },
+   {
+    "date": "2026-09-24",
+    "services": {
+     "Amazon EC2": 4.13,
+     "Amazon RDS": 2.55,
+     "Amazon S3": 1.07
+    },
+    "total_cost": 7.75
+   },
+   {
+    "date": "2026-09-25",
+    "services": {
+     "Amazon EC2": 4.2,
+     "Amazon RDS": 2.56,
+     "Amazon S3": 1.11
+    },
+    "total_cost": 7.87
+   },
+   {
+    "date": "2026-09-26",
+    "services": {
+     "Amazon EC2": 4.24,
+     "Amazon RDS": 2.53,
+     "Amazon S3": 1.13
+    },
+    "total_cost": 7.9
+   },
+   {
+    "date": "2026-09-27",
+    "services": {
+     "Amazon CloudWatch": 3.21,
+     "Amazon EC2": 4.36,
+     "Amazon RDS": 2.54,
+     "Amazon S3": 1.1
+    },
+    "total_cost": 11.21
+   },
+   {
+    "date": "2026-09-28",
+    "services": {
+     "Amazon CloudWatch": 3.19,
+     "Amazon EC2": 4.19,
+     "Amazon RDS": 2.68,
+     "Amazon S3": 1.1
+    },
+    "total_cost": 11.16
+   },
+   {
+    "date": "2026-09-29",
+    "services": {
+     "Amazon CloudWatch": 3.19,
+     "Amazon EC2": 4.08,
+     "Amazon RDS": 2.53,
+     "Amazon S3": 1.09
+    },
+    "total_cost": 10.89
+   },
+   {
+    "date": "2026-09-30",
+    "services": {
+     "Amazon CloudWatch": 3.06,
+     "Amazon EC2": 4.36,
+     "Amazon RDS": 2.56,
+     "Amazon S3": 1.13
+    },
+    "total_cost": 11.11
+   },
+   {
+    "date": "2026-10-01",
+    "services": {
+     "Amazon CloudWatch": 3.14,
+     "Amazon EC2": 4.05,
+     "Amazon RDS": 2.58,
+     "Amazon S3": 1.12
+    },
+    "total_cost": 10.89
+   },
+   {
+    "date": "2026-10-02",
+    "services": {
+     "Amazon CloudWatch": 3.09,
+     "Amazon EC2": 4.15,
+     "Amazon RDS": 2.55,
+     "Amazon S3": 1.12
+    },
+    "total_cost": 10.91
+   },
+   {
+    "date": "2026-10-03",
+    "services": {
+     "Amazon CloudWatch": 3.15,
+     "Amazon EC2": 4.23,
+     "Amazon RDS": 2.63,
+     "Amazon S3": 1.11
+    },
+    "total_cost": 11.12
+   }
+  ],
+  "meta": {
+   "days": 60,
+   "history_days": 60,
+   "mode": "demo",
+   "source": "demo",
+   "today_utc": "2026-10-04",
+   "view_start": "2026-08-05"
+  },
+  "synthetic": true
+ },
+ "detector_status": {
+  "data": {
+   "baseline_progress": 5,
+   "days_since_latest": 1,
+   "evaluated_transitions": 36,
+   "first_snapshot_date": "2026-08-20",
+   "gaps": [
+    {
+     "days": 2,
+     "days_apart": 3,
+     "from": "2026-09-06",
+     "to": "2026-09-09"
+    }
+   ],
+   "latest_snapshot_date": "2026-10-03",
+   "required_baseline": 5,
+   "snapshot_count": 43,
+   "stale": false,
+   "stale_after_days": 2,
+   "state": "active",
+   "valid_transitions": 41
+  },
+  "meta": {
+   "history_days": 60,
+   "mode": "demo",
+   "source": "demo",
+   "today_utc": "2026-10-04"
+  },
+  "synthetic": true
+ }
+}
