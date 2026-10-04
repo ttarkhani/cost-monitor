@@ -1,5 +1,7 @@
 # 📊 Cost Monitor
 
+![offline-tests](https://github.com/ttarkhani/cost-monitor/actions/workflows/offline-tests.yml/badge.svg)
+
 AWS cost monitoring and anomaly-alerting system, built on real billing data pulled from the AWS Cost Explorer API. Detects day-over-day cost anomalies using a statistical method (not a guessed threshold), both in aggregate and per individual AWS service, and alerts by real email the moment a scheduled daily job finds something — running autonomously on AWS Lambda + EventBridge, not dependent on a laptop being on.
 
 This is a monitoring and alerting tool — it does not claim or estimate cost savings. If a genuine optimization is ever found and fixed in the account it monitors, the before/after numbers would be documented here. Until then, every number below describes the system's own verified behavior — load times, a real confusion matrix, a real Lambda invocation, a real received email — not money saved, and not invented.
@@ -9,6 +11,8 @@ This is a monitoring and alerting tool — it does not claim or estimate cost sa
 **Stored data as of 2026-10-04:** three synthetic fixture rows (2026-09-11 to 2026-09-13), written during early testing, were deleted from the table on 2026-10-04. The table now holds 11 consecutive real daily snapshots, 2026-09-23 through 2026-10-03, with no gaps. All values are net spend as reported by Cost Explorer (unfiltered, so including credits and refunds) and effectively $0. The only non-zero line item in the stored data is Amazon Simple Storage Service at about $0.0000000009 on 2026-10-03.
 
 **Live detector status as of 2026-10-04:** the detector is active on live data (10 valid day-to-day changes, 5 of them evaluated) and has flagged nothing. Because every real value is about $0, this shows the pipeline running end to end on real data, **not** detection skill. Detection skill is shown only by the synthetic validation suites.
+
+**Live demo:** https://cost-monitor-liard.vercel.app. Every number on that site is synthetic data, labeled as such on every view, and the real detector runs on it. Real-account (live) mode is not exposed publicly; it runs locally.
 
 ## Architecture
 
