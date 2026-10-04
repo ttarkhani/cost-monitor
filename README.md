@@ -157,7 +157,15 @@ This creates a dedicated, least-privilege IAM role (not root), packages and depl
 
 ## Deployment
 
-**The public deployment is demo-only.** It serves the synthetic demo dataset (clearly labeled, with the persistent banner) run through the real detector. It never shows live data. There is no public URL yet, and this setup has not been deployed yet.
+**The public deployment is demo-only.** It serves the synthetic demo dataset (clearly labeled, with the persistent banner) run through the real detector. It never shows live data. It is deployed on Vercel at https://cost-monitor-liard.vercel.app.
+
+**Verified on 2026-10-04** (checks run against the public URL on that date; a record of what was checked, not an ongoing guarantee):
+- Vercel auto-detected the Flask preset. The project environment variable `COST_MONITOR_LIVE_ENABLED=0` was set for Production and Preview.
+- `GET /api/health` returned 200.
+- `GET /api/costs?mode=live` returned 403 with the JSON error saying live mode is disabled on this deployment.
+- `GET /api/costs?mode=demo` returned `"synthetic": true`.
+- `/static/css/dashboard.css` returned 200 `text/css`; `/static/js/dashboard.mjs` and `/static/js/logic.mjs` returned 200 `application/javascript`.
+- In a browser, the page rendered with the amber synthetic-data banner, 4 anomalies from the real detector, the gap band, and no Live button.
 
 **Why live mode is not deployed publicly:** live mode needs AWS credentials on the host and would expose this account's billing data to anyone with the URL. The real spend is about $0 anyway, so the demo is the more useful public view. A possible future option is Vercel's OIDC federation to a read-only IAM role (no long-lived keys on the host); it is not implemented. Live mode stays available locally (`python app.py`).
 
