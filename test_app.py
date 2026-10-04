@@ -5,6 +5,7 @@ it, and live mode is exercised with the data loader or STS mocked.
 Run: ./venv/bin/python test_app.py
 """
 import os
+import re
 import subprocess
 import sys
 import unittest
@@ -60,6 +61,31 @@ class AppTests(unittest.TestCase):
                               env=env, capture_output=True, text=True, timeout=60)
         self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
         self.assertEqual(proc.stdout.strip(), 'ok')
+
+    def test_every_page_asset_served_with_correct_type(self):
+        page = self.client.get('/').get_data(as_text=True)
+        urls = set(re.findall(r'(?:src|href)="(/[^"]+)"', page))
+        # Relative ES module imports inside the module scripts load too.
+        for url in [u for u in urls if u.endswith('.mjs')]:
+            resp = self.client.get(url)
+            body = resp.get_data(as_text=True)
+            resp.close()
+            base = url.rsplit('/', 1)[0]
+            urls |= {f"{base}/{m}" for m in re.findall(r"from '\./([^']+)'", body)}
+        expected = {'.css': 'text/css', '.mjs': 'text/javascript', '.js': 'text/javascript'}
+        self.assertIn('/static/js/dashboard.mjs', urls)
+        self.assertIn('/static/js/logic.mjs', urls)
+        self.assertIn('/static/css/dashboard.css', urls)
+        root = os.path.dirname(os.path.abspath(__file__))
+        for url in sorted(urls):
+            with self.subTest(url=url):
+                resp = self.client.get(url)
+                self.assertEqual(resp.status_code, 200)
+                ext = os.path.splitext(url)[1]
+                self.assertEqual(resp.mimetype, expected[ext])
+                # Vercel serves public/** from its CDN at the same path.
+                self.assertTrue(os.path.isfile(os.path.join(root, 'public', url.lstrip('/'))), url)
+                resp.close()
 
     def test_debug_off_by_default(self):
         self.assertFalse(app_module.app.debug)

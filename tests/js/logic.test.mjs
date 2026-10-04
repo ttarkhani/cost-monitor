@@ -8,7 +8,7 @@ import {
   apiQuery, buildCalendarAxis, buildSearch, coverage, csvFilename, dayComparison, daysBetween,
   detectorPanel, formatDate, formatSignedUSD, formatUSD, formatUSDPrecise, gapNotice, parseState, serviceBreakdown,
   serviceColorMap, serviceValue, seriesPlan, staleNotice, toCSV, windowTotal, Y_AXIS_MIN_SUGGESTED_MAX,
-} from '../../static/js/logic.mjs';
+} from '../../public/static/js/logic.mjs';
 
 // SYNTHETIC demo-mode API responses recorded by test_contract.py.
 const fixture = JSON.parse(readFileSync(new URL('../fixtures/api_demo_contract.json', import.meta.url)));

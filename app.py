@@ -117,7 +117,10 @@ def _envelope(data, meta, mode):
 
 
 def create_app():
-    app = Flask(__name__)
+    # Static files live in public/static so Vercel's CDN can serve them from
+    # public/** at /static/...; locally Flask serves the same folder at the
+    # same URLs, so templates and tests see identical paths everywhere.
+    app = Flask(__name__, static_folder='public/static', static_url_path='/static')
 
     @app.route('/')
     def dashboard():
