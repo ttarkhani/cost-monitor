@@ -72,7 +72,7 @@ async function loadDashboard() {
   ]);
   const costsPayload = await costsRes.json();
   const costs = costsPayload.data;
-  const alerts = await alertsRes.json();
+  const alerts = (await alertsRes.json()).data;
 
   const loadMs = Math.round(performance.now() - startTime);
   document.getElementById('load-time').textContent =
