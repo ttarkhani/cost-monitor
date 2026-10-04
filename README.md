@@ -151,6 +151,34 @@ python setup_lambda_scheduler.py
 ```
 This creates a dedicated, least-privilege IAM role (not root), packages and deploys the function, wires a daily EventBridge trigger, and immediately invokes it once for real to confirm it actually works end to end — rather than waiting a day to find out.
 
+## Deployment
+
+**The public deployment is demo-only.** It serves the synthetic demo dataset (clearly labeled, with the persistent banner) run through the real detector. It never shows live data. There is no public URL yet, and this setup has not been deployed yet.
+
+**Why live mode is not deployed publicly:** live mode needs AWS credentials on the host and would expose this account's billing data to anyone with the URL. The real spend is about $0 anyway, so the demo is the more useful public view. A possible future option is Vercel's OIDC federation to a read-only IAM role (no long-lived keys on the host); it is not implemented. Live mode stays available locally (`python app.py`).
+
+**How to deploy on Vercel:** import the repository in Vercel; no configuration is required.
+- Vercel finds the Flask instance `app` in `app.py`.
+- It installs `requirements.txt` and uses the Python version in `.python-version` (3.14).
+- Static assets live in `public/static/`, which Vercel serves from its CDN at `/static/...`, the same URLs the local Flask server uses.
+- `vercel.json` only trims the function bundle (tests, docs, setup and Lambda files are excluded).
+
+**Environment variables:**
+
+| Setting | Live mode |
+|---|---|
+| `COST_MONITOR_LIVE_ENABLED=1` | Enabled, anywhere |
+| `COST_MONITOR_LIVE_ENABLED` set to anything else (e.g. `0`) | Disabled, anywhere |
+| Not set, `VERCEL` set (Vercel's system variable) | Disabled |
+| Not set, `VERCEL` not set (local) | Enabled |
+
+When live mode is disabled:
+- The page defaults to demo and has no Live toggle.
+- `?mode=live` falls back to demo with a visible notice.
+- Any `mode=live` API request returns HTTP 403 `{"error": "Live mode is disabled on this deployment. ..."}` before any AWS client is created.
+
+Vercel documents `VERCEL` as an indicator that system environment variables are exposed to the deployment (a project setting). So also set `COST_MONITOR_LIVE_ENABLED=0` in the Vercel project, so the site stays demo-only even if that setting is off.
+
 ## Security model
 
 Every statement below comes from the two setup scripts in this repo. No access key IDs, account IDs or ARNs appear here or in the code; ARNs are built at runtime from the caller's account.
