@@ -3,7 +3,7 @@
 import {
   RANGE_OPTIONS, OTHER_COLOR, alertProblems, alertViewModel, apiQuery, buildCalendarAxis,
   buildSearch, coverage, csvFilename, dayComparison, detectorPanel, formatDate, formatSignedUSD,
-  formatUSD, formatUSDPrecise, formatPct, gapNotice, Y_AXIS_MIN_SUGGESTED_MAX, parseState, pluralize, serviceBreakdown, serviceColorMap,
+  formatUSD, formatUSDPrecise, formatPct, gapNotice, Y_AXIS_MIN_SUGGESTED_MAX, liveFallbackNotice, parseState, pluralize, serviceBreakdown, serviceColorMap,
   serviceValue, seriesPlan, staleNotice, toCSV, windowTotal,
 } from './logic.mjs';
 
@@ -11,7 +11,9 @@ const $ = (id) => document.getElementById(id);
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
-let state = parseState(window.location.search);
+// Set by the server; false on deployments where live mode is disabled (e.g. the public Vercel site).
+const urlOptions = { liveEnabled: document.body.dataset.liveEnabled !== 'false' };
+let state = parseState(window.location.search, urlOptions);
 let chart = null;
 let inflight = null;
 let current = null; // what is on screen right now: { rows, synthetic, mode }
@@ -83,7 +85,7 @@ function syncControls() {
 function setState(next) {
   const modeChanged = next.mode !== state.mode;
   state = { ...state, ...next };
-  window.history.pushState(null, '', `${window.location.pathname}${buildSearch(state)}`);
+  window.history.pushState(null, '', `${window.location.pathname}${buildSearch(state, urlOptions)}`);
   syncControls();
   // Never leave one mode's numbers on screen under the other mode's labels.
   if (modeChanged) resetView();
@@ -103,7 +105,7 @@ function bindControls() {
   $('retry-btn').addEventListener('click', () => load());
   $('export-btn').addEventListener('click', exportCSV);
   window.addEventListener('popstate', () => {
-    const next = parseState(window.location.search);
+    const next = parseState(window.location.search, urlOptions);
     const modeChanged = next.mode !== state.mode;
     state = next;
     syncControls();
@@ -525,6 +527,13 @@ async function load() {
 
 // ------------------------------------------------------------------ boot
 
+const fallback = liveFallbackNotice(window.location.search, urlOptions);
+if (fallback) {
+  $('mode-notice').textContent = fallback;
+  $('mode-notice').hidden = false;
+  // Make the address bar match what is actually shown.
+  window.history.replaceState(null, '', `${window.location.pathname}${buildSearch(state, urlOptions)}`);
+}
 syncControls();
 bindControls();
 resetView();

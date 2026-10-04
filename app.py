@@ -24,6 +24,25 @@ class InvalidParam(ValueError):
     pass
 
 
+class LiveModeDisabled(Exception):
+    pass
+
+
+def live_enabled():
+    """
+    Whether mode=live may be served. Read on every request (cheap) so the
+    environment is the single source of truth.
+    - COST_MONITOR_LIVE_ENABLED=1 enables live mode anywhere.
+    - Any other explicit value (e.g. 0) disables it anywhere: fail closed.
+    - Unset: disabled when VERCEL is set (Vercel's system env variable), so
+      a public deployment is demo-only by default; enabled otherwise.
+    """
+    explicit = os.environ.get('COST_MONITOR_LIVE_ENABLED')
+    if explicit is not None:
+        return explicit == '1'
+    return not os.environ.get('VERCEL')
+
+
 @lru_cache(maxsize=1)
 def get_account_id():
     """Looked up on first live request, not at import, so the app imports offline.
@@ -74,9 +93,13 @@ def _load_demo(today):
 
 
 def _parse_args():
-    mode = request.args.get('mode', 'live')
+    allow_live = live_enabled()
+    mode = request.args.get('mode', 'live' if allow_live else 'demo')
     if mode not in MODES:
         raise InvalidParam(f"mode must be one of: {', '.join(MODES)}")
+    if mode == 'live' and not allow_live:
+        # Checked before any data loading, so no AWS client is ever created.
+        raise LiveModeDisabled()
 
     raw_days = request.args.get('days', str(DEFAULT_VIEW_DAYS))
     if not raw_days.isdigit() or not 1 <= int(raw_days) <= HISTORY_DAYS:
@@ -124,7 +147,8 @@ def create_app():
 
     @app.route('/')
     def dashboard():
-        return render_template('dashboard.html', history_days=HISTORY_DAYS)
+        return render_template('dashboard.html', history_days=HISTORY_DAYS,
+                               live_enabled=live_enabled())
 
     @app.route('/api/health')
     def health():
@@ -164,6 +188,11 @@ def create_app():
     @app.errorhandler(InvalidParam)
     def handle_bad_request(e):
         return jsonify({'error': str(e)}), 400
+
+    @app.errorhandler(LiveModeDisabled)
+    def handle_live_disabled(e):
+        return jsonify({'error': 'Live mode is disabled on this deployment. '
+                                 'Only synthetic demo data is available (mode=demo).'}), 403
 
     @app.errorhandler(HTTPException)
     def handle_http(e):

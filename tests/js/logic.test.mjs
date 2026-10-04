@@ -6,8 +6,8 @@ import { readFileSync } from 'node:fs';
 import {
   ALERT_REQUIRED_FIELDS, OTHER_LABEL, SERIES_COLORS, addDays, alertProblems, alertViewModel,
   apiQuery, buildCalendarAxis, buildSearch, coverage, csvFilename, dayComparison, daysBetween,
-  detectorPanel, formatDate, formatSignedUSD, formatUSD, formatUSDPrecise, gapNotice, parseState, serviceBreakdown,
-  serviceColorMap, serviceValue, seriesPlan, staleNotice, toCSV, windowTotal, Y_AXIS_MIN_SUGGESTED_MAX,
+  defaultMode, detectorPanel, formatDate, formatSignedUSD, formatUSD, formatUSDPrecise, gapNotice, parseState, serviceBreakdown,
+  liveFallbackNotice, serviceColorMap, serviceValue, seriesPlan, staleNotice, toCSV, windowTotal, Y_AXIS_MIN_SUGGESTED_MAX,
 } from '../../public/static/js/logic.mjs';
 
 // SYNTHETIC demo-mode API responses recorded by test_contract.py.
@@ -225,6 +225,29 @@ test('URL state round-trips and rejects unknown values', () => {
   assert.equal(buildSearch({ mode: 'live', days: 30 }), '');
   assert.equal(buildSearch({ mode: 'demo', days: 60 }), '?mode=demo&days=60');
   assert.equal(apiQuery({ mode: 'demo', days: 7 }), 'mode=demo&days=7');
+});
+
+test('demo-only deployment: demo is the default and the only mode', () => {
+  const off = { liveEnabled: false };
+  assert.equal(defaultMode(), 'live');
+  assert.equal(defaultMode(off), 'demo');
+  assert.deepEqual(parseState('', off), { mode: 'demo', days: 30 });
+  assert.deepEqual(parseState('?mode=live&days=7', off), { mode: 'demo', days: 7 });
+  assert.deepEqual(parseState('?mode=demo', off), { mode: 'demo', days: 30 });
+  // Default mode is omitted from the URL, so a clean URL means demo here.
+  assert.equal(buildSearch({ mode: 'demo', days: 30 }, off), '');
+  assert.equal(buildSearch({ mode: 'demo', days: 7 }, off), '?days=7');
+  // With live enabled, nothing changes from before.
+  assert.deepEqual(parseState('?mode=live', { liveEnabled: true }), { mode: 'live', days: 30 });
+});
+
+test('demo-only deployment: ?mode=live gets a visible fallback notice', () => {
+  const off = { liveEnabled: false };
+  assert.match(liveFallbackNotice('?mode=live', off), /Live mode is disabled on this deployment/);
+  assert.equal(liveFallbackNotice('?mode=demo', off), null);
+  assert.equal(liveFallbackNotice('', off), null);
+  assert.equal(liveFallbackNotice('?mode=live', { liveEnabled: true }), null);
+  assert.equal(liveFallbackNotice('?mode=live'), null);
 });
 
 // ------------------------------------------------------------------ CSV

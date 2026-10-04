@@ -33,6 +33,11 @@ class AppTests(unittest.TestCase):
         patcher = mock.patch.object(app_module, '_utc_today', lambda: PINNED_TODAY)
         patcher.start()
         self.addCleanup(patcher.stop)
+        # These tests exercise live mode, so run them as a local (non-Vercel) server.
+        env = {k: v for k, v in os.environ.items() if k not in ('VERCEL', 'COST_MONITOR_LIVE_ENABLED')}
+        env_patcher = mock.patch.dict(os.environ, env, clear=True)
+        env_patcher.start()
+        self.addCleanup(env_patcher.stop)
 
     def get(self, url):
         resp = self.client.get(url)
@@ -184,6 +189,91 @@ class AppTests(unittest.TestCase):
         start, end = get.call_args.args[1:]
         self.assertEqual(end, '2026-10-04')
         self.assertEqual((PINNED_TODAY - date.fromisoformat(start)).days, HISTORY_DAYS)
+
+
+
+class DemoOnlyDeploymentTests(unittest.TestCase):
+    """Live mode gating via VERCEL / COST_MONITOR_LIVE_ENABLED. No AWS anywhere."""
+
+    def setUp(self):
+        cache.clear()
+        app_module.get_account_id.cache_clear()
+        self.client = app_module.create_app().test_client()
+        for patcher in (
+            mock.patch.object(app_module, '_utc_today', lambda: PINNED_TODAY),
+            # Any attempt to reach AWS fails the test loudly.
+            mock.patch('boto3.client', side_effect=AssertionError('boto3.client called')),
+            mock.patch('boto3.resource', side_effect=AssertionError('boto3.resource called')),
+            mock.patch.object(app_module, 'get_account_id', side_effect=AssertionError('STS lookup')),
+            mock.patch.object(app_module, '_load_live', side_effect=AssertionError('live data loaded')),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def env(self, **values):
+        clean = {k: v for k, v in os.environ.items()
+                 if k not in ('VERCEL', 'COST_MONITOR_LIVE_ENABLED')}
+        clean.update(values)
+        patcher = mock.patch.dict(os.environ, clean, clear=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_live_enabled_rules(self):
+        cases = [({}, True), ({'VERCEL': '1'}, False),
+                 ({'VERCEL': '1', 'COST_MONITOR_LIVE_ENABLED': '1'}, True),
+                 ({'COST_MONITOR_LIVE_ENABLED': '0'}, False),
+                 ({'VERCEL': '1', 'COST_MONITOR_LIVE_ENABLED': '0'}, False),
+                 ({'COST_MONITOR_LIVE_ENABLED': 'true'}, False)]  # only exactly "1" enables
+        for values, expected in cases:
+            with self.subTest(values=values), \
+                 mock.patch.dict(os.environ, values, clear=True):
+                self.assertIs(app_module.live_enabled(), expected)
+
+    def test_on_vercel_live_requests_are_403_without_aws(self):
+        self.env(VERCEL='1')
+        for path in ('/api/costs', '/api/alerts', '/api/detector-status'):
+            with self.subTest(path=path):
+                resp = self.client.get(f'{path}?mode=live')
+                self.assertEqual(resp.status_code, 403)
+                body = resp.get_json()
+                self.assertEqual(set(body), {'error'})
+                self.assertIn('Live mode is disabled on this deployment', body['error'])
+
+    def test_on_vercel_default_is_demo_and_synthetic(self):
+        self.env(VERCEL='1')
+        for path in ('/api/costs', '/api/alerts', '/api/detector-status'):
+            with self.subTest(path=path):
+                resp = self.client.get(path)  # no mode param
+                self.assertEqual(resp.status_code, 200)
+                self.assertIs(resp.get_json()['synthetic'], True)
+                self.assertEqual(resp.get_json()['meta']['mode'], 'demo')
+
+    def test_on_vercel_page_defaults_to_demo_without_live_toggle(self):
+        self.env(VERCEL='1')
+        page = self.client.get('/').get_data(as_text=True)
+        self.assertIn('data-live-enabled="false"', page)
+        self.assertNotIn('data-mode="live"', page)
+        self.assertIn('data-mode="demo" aria-pressed="true"', page)
+        self.assertIn('id="synthetic-banner"', page)
+        self.assertIn('id="mode-notice"', page)
+
+    def test_explicit_disable_works_off_vercel(self):
+        self.env(COST_MONITOR_LIVE_ENABLED='0')
+        self.assertEqual(self.client.get('/api/costs?mode=live').status_code, 403)
+        self.assertNotIn('data-mode="live"', self.client.get('/').get_data(as_text=True))
+
+    def test_explicit_enable_on_vercel_allows_live(self):
+        self.env(VERCEL='1', COST_MONITOR_LIVE_ENABLED='1')
+        rows = [{'date': '2026-10-03', 'total_cost': 0.0, 'services': {}}]
+        with mock.patch.object(app_module, '_load_live', return_value=(rows, 'dynamodb')):
+            resp = self.client.get('/api/costs?mode=live')
+        self.assertEqual(resp.status_code, 200)
+        self.assertIs(resp.get_json()['synthetic'], False)
+        self.assertIn('data-mode="live"', self.client.get('/').get_data(as_text=True))
+
+    def test_bad_mode_still_400_when_live_disabled(self):
+        self.env(VERCEL='1')
+        self.assertEqual(self.client.get('/api/costs?mode=prod').status_code, 400)
 
 
 if __name__ == '__main__':

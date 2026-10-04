@@ -149,6 +149,12 @@ h1, h2, p { margin: 0; }
 .banner-synthetic svg { color: var(--warning); }
 .banner-synthetic strong { color: var(--warning); }
 
+.banner-notice {
+  background: var(--surface-raised); color: var(--ink-secondary);
+  border: 1px solid var(--border-strong); padding-inline: var(--space-4);
+  max-width: calc(1280px - 2 * var(--space-5));
+}
+
 .banner-error {
   margin: 0; max-width: none;
   background: var(--critical-bg); color: #f5c2c2;
@@ -283,7 +289,7 @@ h1, h2, p { margin: 0; }
 
 @media (max-width: 720px) {
   .topbar-inner, .page, .statusbar { padding-inline: var(--space-4); }
-  .banner-synthetic, .banner-error { margin-inline: var(--space-4); }
+  .banner-synthetic, .banner-notice, .banner-error { margin-inline: var(--space-4); }
   .card { padding: var(--space-4); }
   .chart-wrapper { height: 300px; }
   .alert-row { grid-template-columns: 1fr auto; }

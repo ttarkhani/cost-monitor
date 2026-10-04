@@ -297,16 +297,30 @@ export function staleNotice(status) {
 
 // ---------------------------------------------------------------- URL state
 
-export function parseState(search) {
+// liveEnabled comes from the server (data-live-enabled on <body>). When live
+// mode is disabled on a deployment, demo is the default and the only mode.
+
+export function defaultMode({ liveEnabled = true } = {}) {
+  return liveEnabled ? DEFAULT_STATE.mode : 'demo';
+}
+
+export function parseState(search, { liveEnabled = true } = {}) {
   const params = new URLSearchParams(search);
-  const mode = params.get('mode') === 'demo' ? 'demo' : 'live';
+  const requested = params.get('mode');
+  const mode = !liveEnabled ? 'demo' : requested === 'demo' ? 'demo' : 'live';
   const days = Number(params.get('days'));
   return { mode, days: RANGE_OPTIONS.includes(days) ? days : DEFAULT_STATE.days };
 }
 
-export function buildSearch(state) {
+/** Notice text when the URL asks for live mode but this deployment does not serve it. */
+export function liveFallbackNotice(search, { liveEnabled = true } = {}) {
+  if (liveEnabled || new URLSearchParams(search).get('mode') !== 'live') return null;
+  return 'Live mode is disabled on this deployment, so the synthetic demo data is shown instead.';
+}
+
+export function buildSearch(state, { liveEnabled = true } = {}) {
   const params = new URLSearchParams();
-  if (state.mode !== DEFAULT_STATE.mode) params.set('mode', state.mode);
+  if (state.mode !== defaultMode({ liveEnabled })) params.set('mode', state.mode);
   if (state.days !== DEFAULT_STATE.days) params.set('days', String(state.days));
   const s = params.toString();
   return s ? `?${s}` : '';
