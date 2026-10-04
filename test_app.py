@@ -4,6 +4,9 @@ it, and live mode is exercised with the data loader or STS mocked.
 
 Run: ./venv/bin/python test_app.py
 """
+import os
+import subprocess
+import sys
 import unittest
 from datetime import date
 from unittest import mock
@@ -38,6 +41,25 @@ class AppTests(unittest.TestCase):
 
     def test_import_makes_no_aws_call(self):
         self.assertEqual(app_module.get_account_id.cache_info().currsize, 0)
+
+    def test_module_level_app_for_vercel_and_import_makes_no_aws_client(self):
+        # Fresh interpreter, so nothing imported by this test file leaks in.
+        # boto3's client/resource/Session constructors are replaced before
+        # app.py is imported; any call to them fails the import.
+        code = (
+            "import boto3\n"
+            "def _no(*a, **k): raise SystemExit('AWS client created at import')\n"
+            "boto3.client = boto3.resource = boto3.Session = _no\n"
+            "import app, flask\n"
+            "assert isinstance(app.app, flask.Flask), type(app.app)\n"
+            "print('ok')\n"
+        )
+        env = {k: v for k, v in os.environ.items() if not k.startswith('AWS_')}
+        env.update(AWS_CONFIG_FILE=os.devnull, AWS_SHARED_CREDENTIALS_FILE=os.devnull)
+        proc = subprocess.run([sys.executable, '-c', code], cwd=os.path.dirname(os.path.abspath(__file__)),
+                              env=env, capture_output=True, text=True, timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        self.assertEqual(proc.stdout.strip(), 'ok')
 
     def test_debug_off_by_default(self):
         self.assertFalse(app_module.app.debug)
