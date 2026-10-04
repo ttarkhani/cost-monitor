@@ -51,11 +51,11 @@ run_fetch.py (manual)   ─or─   AWS Lambda, daily via EventBridge
 | Anomaly detection | Modified z-score (median + MAD), pure Python (`statistics` module, no numpy) |
 | Alerting | AWS SNS (email) |
 | Automation | AWS Lambda + EventBridge (daily scheduled trigger) |
-| IAM | Least-privilege execution role — scoped to exactly 4 permission sets, created automatically by the setup script |
+| IAM | Two non-root identities: a dedicated `cost-monitor-dev` IAM user for local runs (`setup_scoped_iam_user.py`) and a separate Lambda execution role (`setup_lambda_scheduler.py`), each with policies scoped to this project's named resources (see Security model) |
 | Caching | In-memory TTL cache |
 | Frontend | Server-rendered HTML/CSS/vanilla JS, Chart.js (CDN) |
 
-Configured against a single AWS account (whichever credentials `aws configure` points to, for local/manual use — see Known limitations for how the automated path differs). Cost Explorer provides daily-granularity billing data with a ~24–36 hour lag.
+Configured against a single AWS account: locally, whichever credentials `aws configure` points to (intended to be the scoped `cost-monitor-dev` user); on Lambda, the function's execution role. Cost Explorer provides daily-granularity billing data with a ~24–36 hour lag.
 
 ## Real metrics
 
@@ -90,11 +90,17 @@ source venv/bin/activate      # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-**Configure AWS credentials:**
+**Create the scoped local IAM user (one time):**
+```bash
+python setup_scoped_iam_user.py
+```
+Run this once with credentials that are allowed to create IAM users, attach inline user policies and create access keys. It creates the `cost-monitor-dev` user (if missing), attaches the `cost-monitor-scoped-access` inline policy described under Security model, and, only if the user has no access key yet, creates one and prints the Access Key ID and Secret Access Key **once**. AWS will not show that secret again. If the user already has a key, the script does not create another.
+
+**Configure AWS credentials** with that user's new key:
 ```bash
 aws configure
 ```
-For local/manual use, requires `ce:GetCostAndUsage`; `dynamodb:CreateTable`/`PutItem`/`Query`/`DescribeTable`; `sns:CreateTopic`/`Subscribe`/`Publish`/`ListSubscriptionsByTopic`; and `sts:GetCallerIdentity`.
+All local commands below (`run_fetch.py`, the setup scripts, live mode in the dashboard) then run as `cost-monitor-dev`, not root.
 
 **Enable Cost Explorer** (one-time, per AWS account): Billing and Cost Management → Cost Explorer → Enable. Can take up to 24 hours to finish indexing on a new account before it returns data.
 
@@ -137,6 +143,34 @@ python setup_lambda_scheduler.py
 ```
 This creates a dedicated, least-privilege IAM role (not root), packages and deploys the function, wires a daily EventBridge trigger, and immediately invokes it once for real to confirm it actually works end to end — rather than waiting a day to find out.
 
+## Security model
+
+Every statement below comes from the two setup scripts in this repo. No access key IDs, account IDs or ARNs appear here or in the code; ARNs are built at runtime from the caller's account.
+
+| Identity | Created by | Used for |
+|---|---|---|
+| IAM user `cost-monitor-dev` | `setup_scoped_iam_user.py` | Local runs: `run_fetch.py`, the dashboard's live mode, and the one-time setup scripts |
+| IAM role `cost-monitor-lambda-role` (trusted by `lambda.amazonaws.com` only) | `setup_lambda_scheduler.py` | The scheduled Lambda function |
+
+The AWS root account has no access keys; neither path uses root.
+
+**`cost-monitor-dev`: inline policy `cost-monitor-scoped-access`**
+- Account-level (`Resource: "*"`): `ce:GetCostAndUsage` and `sts:GetCallerIdentity`.
+- Only the `CostMonitorSnapshots` table: `dynamodb:CreateTable`, `DescribeTable`, `PutItem`, `Query`.
+- Only the `cost-monitor-alerts` topic: `sns:CreateTopic`, `Publish`, `Subscribe`, `ListSubscriptionsByTopic`.
+- One-time provisioning, each limited to one named resource:
+  - only the `cost-monitor-lambda-role` role: `iam:CreateRole`, `GetRole`, `AttachRolePolicy`, `PutRolePolicy`;
+  - only the `cost-monitor-daily-ingestion` function: `lambda:CreateFunction`, `UpdateFunctionCode`, `GetFunction`, `AddPermission`, `InvokeFunction`;
+  - only the `cost-monitor-daily-trigger` rule: `events:PutRule`, `PutTargets`.
+- `iam:PassRole` is limited to the single `cost-monitor-lambda-role`. An unscoped `iam:PassRole` next to `lambda:CreateFunction` is a well-known privilege-escalation pattern: it lets a user create a function that runs as *any* role in the account.
+
+**`cost-monitor-lambda-role`**
+- AWS managed policy `AWSLambdaBasicExecutionRole`, for CloudWatch Logs.
+- Inline policy `cost-monitor-pipeline-permissions`:
+  - `ce:GetCostAndUsage` and `sts:GetCallerIdentity` (account-level);
+  - `dynamodb:PutItem`, `Query`, `DescribeTable` on the one table;
+  - `sns:CreateTopic`, `Publish`, `ListSubscriptionsByTopic` on the one topic.
+
 ## API
 
 | Endpoint | Description |
@@ -175,7 +209,7 @@ They respond with `{"data": ..., "meta": {...}, "synthetic": true|false}`; `meta
 ## Known limitations
 
 - The monitored account is free tier: real spend has been $0.00 or sub-cent on every day since real ingestion began on 2026-09-23. The detector has never seen a real anomaly, and all anomaly-detection validation in this project is synthetic.
-- Local development and manual runs (`aws configure`) still use AWS root credentials. The automated, scheduled execution path is meaningfully better: it runs under a separate, purpose-built IAM role scoped to exactly the 4 permission sets it needs (Cost Explorer read, this one DynamoDB table, this one SNS topic, STS), created automatically by `setup_lambda_scheduler.py`. A full production deployment would still move the local/manual path off root too.
+- Local and scheduled execution both run under non-root, purpose-built IAM identities, and the root account has no access keys (see Security model). The remaining gap: the day-to-day `cost-monitor-dev` user still holds the one-time provisioning permissions (IAM role creation and `iam:PassRole`, Lambda, EventBridge). Because it can rewrite `cost-monitor-lambda-role`'s policies (`iam:PutRolePolicy` / `iam:AttachRolePolicy`, with no limit on which policy) and update and invoke the function, it could widen that role's permissions and run code under it. A stricter setup would split provisioning into a separate identity, used only during setup, from the runtime identity used every day.
 - Detection constants (`Z_THRESHOLD=3.5`, `MIN_WINDOW=5`, `MIN_ABS_INCREASE=$1.00`, `MAD_EPSILON=1e-6`) and cache TTL (60s) are hardcoded, not exposed as runtime config.
 - The detection baseline is every valid consecutive-day change inside the 60-day `HISTORY_DAYS` window (shared by the pipeline and the dashboard), not a separately tuned rolling window.
 - The pipeline emails only anomalies dated the day it just ingested, so an anomaly is alerted once rather than every day it stays in the window. Re-running the pipeline manually for the same date re-ingests that date and can re-alert for it.
