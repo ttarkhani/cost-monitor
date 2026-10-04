@@ -1,0 +1,8 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "app.py": {
+      "excludeFiles": "{tests/**,docs/**,test_*.py,setup_*.py,lambda_handler.py,run_fetch.py,run_offline_tests.sh,lambda_package/**,lambda_deployment.zip,.github/**}"
+    }
+  }
+}
