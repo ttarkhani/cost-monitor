@@ -23,8 +23,8 @@ run_fetch.py (manual)   ─or─   AWS Lambda, daily via EventBridge
         │       AWS SNS ──▶ real email alert
         │
         ▼
-   Flask API (/api/costs, /api/alerts, /api/cache-stats)
-        │      ↕ in-memory TTL cache
+   Flask API (/api/costs, /api/alerts, /api/detector-status, /api/cache-stats)
+        │      ↕ in-memory TTL cache     (mode=demo: synthetic data, no AWS)
         ▼
   Dashboard (Chart.js)
 ```
@@ -36,7 +36,8 @@ run_fetch.py (manual)   ─or─   AWS Lambda, daily via EventBridge
 - **Statistical anomaly detection** — a modified z-score (median + median absolute deviation, robust to small-sample outliers in a way a plain mean/stddev z-score isn't) replaces a naive fixed-threshold check, evaluated both in aggregate and per individual AWS service, so a spike in one service isn't masked by a drop in another
 - **Real email alerting** — a genuine AWS SNS subscription. Confirmed via an actual email received in an inbox, not just an API call returning success
 - **Serverless daily automation** — AWS Lambda + EventBridge run the full ingest → detect → alert pipeline once a day, independent of whether any machine is powered on. The manual `run_fetch.py` path still exists for on-demand runs and shares the exact same underlying code
-- **Interactive dashboard** — stacked bar chart of spend by service over time, rendered with [Chart.js](https://www.chartjs.org/), served directly by Flask
+- **Interactive dashboard** — stacked bar chart of spend by service on a true calendar axis (a missing day shows as a gap, never as $0), anomaly markers, a detector panel that distinguishes "anomalies found" / "active, nothing unusual" / "warming up", ingestion-gap and stale-data notices, a service breakdown table, and CSV export. Vanilla JS + [Chart.js](https://www.chartjs.org/), served directly by Flask
+- **Demo mode, clearly labeled synthetic** — `?mode=demo` serves a deterministic, generated 45-day dataset (one service spike, one new service, a 2-day ingestion gap) and runs the *real* detector on it, so the UI can be shown without AWS. Every demo API response carries `"synthetic": true`, and the page shows a persistent banner
 - **In-memory caching** — short-TTL cache in front of DynamoDB reads, with real hit/miss tracking exposed via its own API endpoint
 - **Live stats, everywhere** — dashboard load times, cache hit rate, a real synthetic confusion matrix, a real Lambda invocation's actual duration and memory use. Nothing in this project's numbers is invented
 
@@ -65,7 +66,8 @@ Measured on this project, not estimated.
 | Full dashboard page load (client-measured, pre-caching) | 45–186ms across numerous real local reloads throughout the build |
 | Cache-hit backend read time (`/api/costs` `meta.elapsed_ms`) | 0.0ms, confirmed via direct API response |
 | Cache hit rate (early testing, small sample) | 33.3% (1 hit / 2 misses) |
-| Anomaly detection — synthetic validation suite | 3/3 true positives, 0 false positives, 0 false negatives, across 5 scenarios (38 total judgments). Precision 1.000, recall 1.000, false positive rate 0.000 |
+| Anomaly detection — per-service synthetic suite (`test_service_validation.py`) | 8 multi-service scenarios, 164 judgments: 6 true positives, 1 false positive, 157 true negatives, 0 false negatives. Precision 0.857, recall 1.000, false positive rate 0.006. The false positive is a service's recovery back to normal the day after a one-day dip (see Known limitations) |
+| Anomaly detection — aggregate synthetic validation suite | 3/3 true positives, 0 false positives, 0 false negatives, across 5 scenarios (38 total judgments). Precision 1.000, recall 1.000, false positive rate 0.000 |
 | Anomaly detection — real account data | No real anomalies exist to detect: real daily spend has been $0.00 or sub-cent since ingestion began on 2026-09-23, below the $1.00 minimum-increase floor. All anomaly-detection results in this README are synthetic |
 | Real AWS cost data ingested | Daily since 2026-09-23 (Cost Explorer, grouped by service). Earlier rows that once appeared in the table (2026-09-11 to 2026-09-13) were synthetic fixtures written by `test_db.py`, not real billing data |
 | AWS Lambda invocation, verified end-to-end | Duration 518.77ms (1398ms billed, including cold-start init), 102MB of 256MB memory used. Real CloudWatch Logs and a real DynamoDB write confirmed, not just a returned success code |
@@ -106,7 +108,13 @@ python run_fetch.py     # pulls yesterday's finalized costs — Cost Explorer ha
 ```bash
 python app.py
 ```
-Open `http://127.0.0.1:5001`.
+Open `http://127.0.0.1:5001` (the server binds to 127.0.0.1 only; set `COST_MONITOR_DEBUG=1` to enable Flask debug mode). Live mode reads DynamoDB and needs AWS credentials; **demo mode needs none**: open `http://127.0.0.1:5001/?mode=demo`, or use the Live / Demo toggle in the header. Everything shown in demo mode is synthetic and labeled as such.
+
+**Run the offline tests** (no AWS access needed; credentials are blanked for the run):
+```bash
+./run_offline_tests.sh
+```
+This runs the aggregate and per-service synthetic validation suites, the pipeline tests (repeat-alert behavior, with AWS mocked), demo-data ground truth, detector status, the Flask API, the API contract check, the Lambda handler, and the dashboard's JS logic via `node --test` (Node 22 or newer, tested on 24; no npm packages). The same script runs in GitHub Actions on push and pull request. `test_db.py`, `test_alerts.py`, `test_alerting.py` and `test_cost_explorer.py` are *not* offline: they talk to real AWS.
 
 **Enable real email alerts (optional):**
 ```bash
@@ -135,9 +143,22 @@ This creates a dedicated, least-privilege IAM role (not root), packages and depl
 |---|---|
 | `GET /` | Dashboard UI (server-rendered) |
 | `GET /api/health` | Health check |
-| `GET /api/costs` | Last 30 days of cost snapshots, by service (cached) |
+| `GET /api/costs` | Daily cost snapshots by service (live data cached for 60s) |
 | `GET /api/alerts` | Detected day-over-day cost anomalies, aggregate and per-service |
+| `GET /api/detector-status` | Baseline progress (`valid_transitions` of `required_baseline`), `state` (`warming_up` / `active`), ingestion gaps, latest snapshot date, and a `stale` flag |
 | `GET /api/cache-stats` | Real cache hit/miss counts and hit rate |
+
+`/api/costs`, `/api/alerts` and `/api/detector-status` accept:
+- `mode=live|demo` (default `live`). `demo` never touches AWS.
+- `days=1..60` (default 30): how many days to *display*. Detection always runs over the full 60-day window (`HISTORY_DAYS` in `backend/config.py`, shared with the daily pipeline), so a view never shows a day the detector did not see.
+
+They respond with `{"data": ..., "meta": {...}, "synthetic": true|false}`; `meta` includes `source` (`cache`, `dynamodb` or `demo`) and `elapsed_ms`. Errors are JSON `{"error": "..."}` with a matching status: 400 for bad parameters, 503 when AWS is unreachable, 404/405/500 otherwise, with no stack traces. The payload shape is pinned by `tests/fixtures/api_demo_contract.json`, which both the Python and the JS tests check.
+
+## Screenshots
+
+![Dashboard in demo mode](docs/dashboard.png)
+
+*Demo mode: **synthetic data**, not real AWS billing. Captured with headless Chrome from the running app. The real account is free tier and its live view is near-zero.*
 
 ## Challenges & how they were solved
 
@@ -156,8 +177,10 @@ This creates a dedicated, least-privilege IAM role (not root), packages and depl
 - The monitored account is free tier: real spend has been $0.00 or sub-cent on every day since real ingestion began on 2026-09-23. The detector has never seen a real anomaly, and all anomaly-detection validation in this project is synthetic.
 - Local development and manual runs (`aws configure`) still use AWS root credentials. The automated, scheduled execution path is meaningfully better: it runs under a separate, purpose-built IAM role scoped to exactly the 4 permission sets it needs (Cost Explorer read, this one DynamoDB table, this one SNS topic, STS), created automatically by `setup_lambda_scheduler.py`. A full production deployment would still move the local/manual path off root too.
 - Detection constants (`Z_THRESHOLD=3.5`, `MIN_WINDOW=5`, `MIN_ABS_INCREASE=$1.00`, `MAD_EPSILON=1e-6`) and cache TTL (60s) are hardcoded, not exposed as runtime config.
-- The historical baseline used for detection grows unbounded rather than using a fixed rolling window (e.g. the last 30/60 days only) — fine at the current data volume, worth revisiting once months of real history accumulate.
-- Per-service anomaly detection has been checked on one synthetic scenario (the real stored data is all near-zero, so it has never had a real anomaly to find), but hasn't yet been run through the same systematic 5-scenario confusion-matrix suite that aggregate-level detection has.
+- The detection baseline is every valid consecutive-day change inside the 60-day `HISTORY_DAYS` window (shared by the pipeline and the dashboard), not a separately tuned rolling window.
+- The pipeline emails only anomalies dated the day it just ingested, so an anomaly is alerted once rather than every day it stays in the window. Re-running the pipeline manually for the same date re-ingests that date and can re-alert for it.
+- Cost Explorer data can change after the pipeline reads it: AWS documents that Cost Explorer "refreshes your cost data at least once every 24 hours" and that "some data might be updated later than 24 hours" ([AWS docs](https://docs.aws.amazon.com/cost-management/latest/userguide/ce-what-is.html)). The pipeline ingests each day once and never re-fetches it, so later revisions to a stored day are not picked up.
+- Per-service detection has been validated only on synthetic data (precision 0.857, recall 1.000 across 8 scenarios). The one false positive shows a real limitation: each increase is judged on its own, so a service that dips for one day and then returns to normal gets its recovery flagged as a spike.
 - EventBridge's *unattended* daily trigger — as opposed to a manual/verification invoke — hasn't been directly observed firing on its own yet as of this writing. The rule, target, and invoke permission are all confirmed correctly configured, and AWS's own mechanics mean it should fire on schedule, but that specific claim is still pending its first real, hands-off occurrence.
 - Single AWS account only — no consolidated billing / multi-account support.
 - Runs on Flask's built-in dev server, not a production WSGI server — this applies to the dashboard-viewing experience only; the actual scheduled ingestion pipeline runs on real AWS Lambda infrastructure, not Flask.
