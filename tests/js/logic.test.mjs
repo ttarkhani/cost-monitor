@@ -6,8 +6,8 @@ import { readFileSync } from 'node:fs';
 import {
   ALERT_REQUIRED_FIELDS, OTHER_LABEL, SERIES_COLORS, addDays, alertProblems, alertViewModel,
   apiQuery, buildCalendarAxis, buildSearch, coverage, csvFilename, dayComparison, daysBetween,
-  detectorPanel, formatDate, formatSignedUSD, formatUSD, gapNotice, parseState, serviceBreakdown,
-  serviceColorMap, serviceValue, seriesPlan, staleNotice, toCSV, windowTotal,
+  detectorPanel, formatDate, formatSignedUSD, formatUSD, formatUSDPrecise, gapNotice, parseState, serviceBreakdown,
+  serviceColorMap, serviceValue, seriesPlan, staleNotice, toCSV, windowTotal, Y_AXIS_MIN_SUGGESTED_MAX,
 } from '../../static/js/logic.mjs';
 
 // SYNTHETIC demo-mode API responses recorded by test_contract.py.
@@ -19,20 +19,50 @@ const row = (date, services) => ({
 
 // ------------------------------------------------------------------ formatting
 
-test('formatUSD keeps sub-cent amounts visible and handles missing values', () => {
+test('formatUSD: exact zero is $0.00, values that would round to $0.00 are <$0.01', () => {
   assert.equal(formatUSD(0), '$0.00');
-  assert.equal(formatUSD(12.5), '$12.50');
+  assert.equal(formatUSD(9e-10), '<$0.01'); // real S3 line item on 2026-10-03
+  assert.equal(formatUSD(0.004), '<$0.01');
+  assert.equal(formatUSD(0.0049999), '<$0.01');
+  assert.equal(formatUSD(0.005), '$0.01'); // rounds up to a cent, so it is shown as one
+  assert.equal(formatUSD(0.01), '$0.01');
+  assert.equal(formatUSD(12.345), '$12.35');
   assert.equal(formatUSD(1234.567), '$1,234.57');
-  assert.equal(formatUSD(0.004), '$0.004');
-  assert.equal(formatUSD(0.00012), '$0.0001');
+  assert.equal(formatUSD(-0.5), '−$0.50');
+  assert.equal(formatUSD(-12.345), '−$12.35');
+  assert.equal(formatUSD(-9e-10), '−<$0.01');
   assert.equal(formatUSD(null), '—');
   assert.equal(formatUSD(NaN), '—');
 });
 
-test('formatSignedUSD', () => {
+test('formatUSDPrecise keeps full precision for sub-cent values (tooltips)', () => {
+  assert.equal(formatUSDPrecise(9e-10), '<$0.01 ($0.0000000009)');
+  assert.equal(formatUSDPrecise(0.004), '<$0.01 ($0.004)');
+  assert.equal(formatUSDPrecise(0.0049999), '<$0.01 ($0.0049999)');
+  assert.equal(formatUSDPrecise(-9e-10), '−<$0.01 (−$0.0000000009)');
+  assert.equal(formatUSDPrecise(0), '$0.00');
+  assert.equal(formatUSDPrecise(0.01), '$0.01');
+  assert.equal(formatUSDPrecise(12.345), '$12.35');
+  assert.equal(formatUSDPrecise(null), '—');
+});
+
+test('formatSignedUSD: "no change" for zero, signed <$0.01 for sub-cent changes', () => {
+  assert.equal(formatSignedUSD(0), 'no change');
+  assert.equal(formatSignedUSD(9e-10), '+<$0.01');
+  assert.equal(formatSignedUSD(-9e-10), '−<$0.01');
+  assert.equal(formatSignedUSD(0.004), '+<$0.01');
+  assert.equal(formatSignedUSD(0.005), '+$0.01');
   assert.equal(formatSignedUSD(8.16), '+$8.16');
   assert.equal(formatSignedUSD(-0.5), '−$0.50');
-  assert.equal(formatSignedUSD(0), '$0.00');
+  assert.equal(formatSignedUSD(-12.345), '−$12.35');
+  assert.equal(formatSignedUSD(null), '—');
+});
+
+test('y-axis floor is $1.00 and leaves demo-scale data alone', () => {
+  assert.equal(Y_AXIS_MIN_SUGGESTED_MAX, 1);
+  // suggestedMax only raises the axis maximum; demo days are all well above it.
+  const demoMax = Math.max(...fixture.costs.data.map((r) => r.total_cost));
+  assert.ok(demoMax > Y_AXIS_MIN_SUGGESTED_MAX);
 });
 
 test('formatDate never shifts the day through local time zones', () => {
@@ -206,6 +236,8 @@ test('CSV export labels synthetic data, escapes cells, and names demo files', ()
   assert.equal(demo[1], `date,total_cost_usd,"'=HYPERLINK(""x"")",Amazon EC2`);
   assert.equal(demo[2], '2026-10-04,1.75,0.25,1.5');
   assert.doesNotMatch(toCSV(rows, { synthetic: false }), /SYNTHETIC/);
+  const tiny = toCSV([row('2026-10-03', { 'Amazon Simple Storage Service': 9e-10 })], { synthetic: false });
+  assert.equal(tiny.split('\r\n')[1], '2026-10-03,9e-10,9e-10', 'CSV keeps full precision');
   assert.equal(csvFilename('demo', rows), 'cost-monitor-demo-synthetic-2026-10-04_to_2026-10-04.csv');
   assert.equal(csvFilename('live', rows), 'cost-monitor-live-2026-10-04_to_2026-10-04.csv');
 });

@@ -3,7 +3,7 @@
 import {
   RANGE_OPTIONS, OTHER_COLOR, alertProblems, alertViewModel, apiQuery, buildCalendarAxis,
   buildSearch, coverage, csvFilename, dayComparison, detectorPanel, formatDate, formatSignedUSD,
-  formatUSD, formatPct, gapNotice, parseState, pluralize, serviceBreakdown, serviceColorMap,
+  formatUSD, formatUSDPrecise, formatPct, gapNotice, Y_AXIS_MIN_SUGGESTED_MAX, parseState, pluralize, serviceBreakdown, serviceColorMap,
   serviceValue, seriesPlan, staleNotice, toCSV, windowTotal,
 } from './logic.mjs';
 
@@ -337,7 +337,7 @@ function renderChart(rows, alerts, colors, plan) {
       scales: {
         x: { stacked: true, grid: { display: false }, border: { color: css('--axis') },
              ticks: { color: muted, autoSkip: true, autoSkipPadding: 14, maxRotation: 0 } },
-        y: { stacked: true, beginAtZero: true, grid: { color: css('--grid') }, border: { display: false },
+        y: { stacked: true, beginAtZero: true, suggestedMax: Y_AXIS_MIN_SUGGESTED_MAX, grid: { color: css('--grid') }, border: { display: false },
              ticks: { color: muted, callback: (v) => formatUSD(v) } },
         yGap: { display: false, min: 0, max: 1, stacked: false },
       },
@@ -355,11 +355,11 @@ function renderChart(rows, alerts, colors, plan) {
             label: (item) => {
               if (item.dataset.stack === 'gap') return 'No snapshot recorded for this day (not $0)';
               if (item.dataset.stack === 'markers') return `Anomaly flagged: ${flagged.get(axis[item.dataIndex].date).join(', ')}`;
-              return `${item.dataset.label}: ${formatUSD(item.raw)}`;
+              return `${item.dataset.label}: ${formatUSDPrecise(item.raw)}`;
             },
             footer: (items) => {
               const row = axis[items[0].dataIndex].row;
-              return row ? `Total: ${formatUSD(row.total_cost)}` : '';
+              return row ? `Total: ${formatUSDPrecise(row.total_cost)}` : '';
             },
           },
         },

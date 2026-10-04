@@ -18,21 +18,48 @@ export const OTHER_LABEL = 'Other services';
 
 const usd2 = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD',
   minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const usdSmall = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD',
-  minimumFractionDigits: 2, maximumFractionDigits: 4 });
+const usdPrecise = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD',
+  maximumSignificantDigits: 15 }); // a double holds ~15 exact significant digits
 
-/** Dollars. Sub-cent non-zero amounts keep up to 4 decimals so $0.004 never reads as $0.00. */
-export function formatUSD(value) {
-  if (value === null || value === undefined || Number.isNaN(value)) return '—';
-  const abs = Math.abs(value);
-  return (abs > 0 && abs < 0.01 ? usdSmall : usd2).format(value);
+export const LESS_THAN_A_CENT = '<$0.01';
+
+const isMissing = (value) => value === null || value === undefined || Number.isNaN(value);
+
+/** Non-zero but displays as $0.00 at cent precision (decided by the same rounding the display uses). */
+export function isSubCent(value) {
+  return value !== 0 && usd2.format(Math.abs(value)) === '$0.00';
 }
 
+/**
+ * Dollars at cent precision. Exact zero is "$0.00"; a non-zero amount that
+ * would round to $0.00 (real data has values like $0.0000000009) is
+ * "<$0.01", so it never reads as zero. Negative amounts get a "−" sign.
+ */
+export function formatUSD(value) {
+  if (isMissing(value)) return '—';
+  const sign = value < 0 ? '−' : '';
+  return sign + (isSubCent(value) ? LESS_THAN_A_CENT : usd2.format(Math.abs(value)));
+}
+
+/** Like formatUSD, but a sub-cent amount also shows its exact value: "<$0.01 ($0.0000000009)". */
+export function formatUSDPrecise(value) {
+  if (isMissing(value) || !isSubCent(value)) return formatUSD(value);
+  return `${formatUSD(value)} (${value < 0 ? '−' : ''}${usdPrecise.format(Math.abs(value))})`;
+}
+
+/** Signed change: "no change" for exactly zero, "+<$0.01" / "−<$0.01" for sub-cent changes. */
 export function formatSignedUSD(value) {
-  if (value === null || value === undefined || Number.isNaN(value)) return '—';
-  if (value === 0) return formatUSD(0);
+  if (isMissing(value)) return '—';
+  if (value === 0) return 'no change';
   return (value > 0 ? '+' : '−') + formatUSD(Math.abs(value));
 }
+
+// Chart y-axis floor: the axis always reaches at least $1.00, so near-zero
+// data (a billionth of a dollar) draws as essentially flat instead of being
+// auto-scaled into full-height bars with every tick label reading $0.00.
+// Chart.js treats this as a minimum for the axis maximum: data above $1.00
+// (the demo, any real spend) scales exactly as before.
+export const Y_AXIS_MIN_SUGGESTED_MAX = 1.0;
 
 export function formatPct(fraction) {
   if (fraction === null || fraction === undefined || !Number.isFinite(fraction)) return '—';
