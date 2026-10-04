@@ -2,144 +2,142 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
 <title>Cost Monitor</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-<style>
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    background: #0f1117;
-    color: #e6e6e6;
-    margin: 0 auto;
-    padding: 2rem;
-    max-width: 1400px;
-  }
-  h1 { font-size: 1.5rem; margin-bottom: 0.25rem; }
-  .subtitle { color: #9aa0a6; margin-bottom: 1.5rem; font-size: 0.9rem; }
-  .stats { display: flex; gap: 1rem; margin-bottom: 1.5rem; }
-  .stat-card { background: #1a1d27; border-radius: 8px; padding: 1rem 1.5rem; flex: 1; }
-  .stat-label { font-size: 0.8rem; color: #9aa0a6; }
-  .stat-value { font-size: 1.6rem; font-weight: 600; margin-top: 0.25rem; }
-  .alerts { background: #2a1a1a; border: 1px solid #5a2a2a; border-radius: 8px; padding: 1rem; margin-bottom: 1.5rem; }
-  .alerts.hidden { display: none; }
-  .alert-item { padding: 0.4rem 0; font-size: 0.9rem; }
-  .chart-container { background: #1a1d27; border-radius: 8px; padding: 1.5rem; }
-  .chart-wrapper { position: relative; height: 400px; }
-  .loading { color: #9aa0a6; font-size: 0.9rem; }
-</style>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2317181c'/%3E%3Crect x='7' y='17' width='4' height='8' rx='1' fill='%233987e5'/%3E%3Crect x='14' y='12' width='4' height='13' rx='1' fill='%233987e5'/%3E%3Crect x='21' y='7' width='4' height='18' rx='1' fill='%23d95926'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"
+        integrity="sha512-CQBWl4fJHWbryGE+Pc7UAxWMUMNMWzWxF4SQo9CgkJIN1kx6djDQZjh3Y8SZ1d+6I+1zze6Z7kHXO7q3UyZAWw=="
+        crossorigin="anonymous" referrerpolicy="no-referrer" defer></script>
+<script type="module" src="{{ url_for('static', filename='js/dashboard.mjs') }}"></script>
 </head>
 <body>
+<a class="skip-link" href="#main">Skip to content</a>
 
-<h1>Cost Monitor</h1>
-<div class="subtitle">AWS spend monitoring &amp; anomaly alerts — real account data</div>
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <h1>Cost Monitor</h1>
+      <p class="brand-sub">AWS daily spend and anomaly detection</p>
+    </div>
+    <nav class="controls" aria-label="Dashboard controls">
+      <div class="segmented" role="group" aria-label="Data source">
+        <button type="button" data-mode="live" aria-pressed="true">Live</button>
+        <button type="button" data-mode="demo" aria-pressed="false">Demo</button>
+      </div>
+      <div class="segmented" role="group" aria-label="Date range">
+        <button type="button" data-days="7" aria-pressed="false">7d</button>
+        <button type="button" data-days="30" aria-pressed="true">30d</button>
+        <button type="button" data-days="60" aria-pressed="false">60d</button>
+      </div>
+      <button type="button" class="btn" id="refresh-btn">
+        <svg aria-hidden="true" viewBox="0 0 16 16" width="14" height="14"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5v3h-3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Refresh
+      </button>
+    </nav>
+  </div>
+</header>
 
-<div id="alerts" class="alerts hidden">
-  <strong>⚠ Anomalies detected</strong>
-  <div id="alerts-list"></div>
+<div id="synthetic-banner" class="banner banner-synthetic" role="status" hidden>
+  <svg aria-hidden="true" viewBox="0 0 16 16" width="16" height="16"><path d="M8 1.5 15 14H1z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M8 6v3.5M8 11.5v.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+  <p><strong>Synthetic demo data.</strong> Everything on this page is generated for demonstration and is not real AWS billing data. Anomalies shown are the real detector's output on that synthetic data.</p>
 </div>
 
-<div class="stats">
-  <div class="stat-card">
-    <div class="stat-label">Latest daily spend</div>
-    <div class="stat-value" id="stat-latest">—</div>
+<main id="main" class="page" aria-busy="true">
+
+  <div id="error-banner" class="banner banner-error" role="alert" hidden>
+    <svg aria-hidden="true" viewBox="0 0 16 16" width="16" height="16"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.5v4M8 11v.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+    <div class="banner-body">
+      <p id="error-title"><strong>Some data could not be loaded.</strong></p>
+      <ul id="error-list"></ul>
+    </div>
+    <button type="button" class="btn" id="retry-btn">Retry</button>
   </div>
-  <div class="stat-card">
-    <div class="stat-label">30-day total</div>
-    <div class="stat-value" id="stat-total">—</div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-label">Days tracked</div>
-    <div class="stat-value" id="stat-days">—</div>
-  </div>
-</div>
 
-<div class="chart-container">
-  <div class="chart-wrapper">
-    <canvas id="costChart"></canvas>
-  </div>
-</div>
+  <section class="cards" aria-label="Summary">
+    <article class="card stat" id="card-latest">
+      <h2 class="stat-label">Latest recorded day</h2>
+      <p class="stat-value"><span class="skeleton">&nbsp;</span></p>
+      <p class="stat-note"></p>
+    </article>
+    <article class="card stat" id="card-change">
+      <h2 class="stat-label">Change vs previous day</h2>
+      <p class="stat-value"><span class="skeleton">&nbsp;</span></p>
+      <p class="stat-note"></p>
+    </article>
+    <article class="card stat" id="card-total">
+      <h2 class="stat-label">Total across recorded days</h2>
+      <p class="stat-value"><span class="skeleton">&nbsp;</span></p>
+      <p class="stat-note"></p>
+    </article>
+    <article class="card stat" id="card-coverage">
+      <h2 class="stat-label">Coverage</h2>
+      <p class="stat-value"><span class="skeleton">&nbsp;</span></p>
+      <p class="stat-note"></p>
+    </article>
+  </section>
 
-<p class="loading" id="load-time"></p>
+  <section class="card detector" id="detector" aria-labelledby="detector-title">
+    <div class="section-head">
+      <h2 id="detector-title" class="section-title">Anomaly detector</h2>
+      <span class="section-meta" id="detector-meta"></span>
+    </div>
+    <div id="detector-body" aria-live="polite">
+      <p class="skeleton-line"><span class="skeleton">&nbsp;</span></p>
+    </div>
+  </section>
 
-<script>
-const paletteColors = ['#4f8cff', '#ff6b6b', '#51cf66', '#ffd43b', '#cc5de8', '#22b8cf', '#ff922b'];
+  <section class="card" aria-labelledby="chart-title">
+    <div class="section-head">
+      <h2 id="chart-title" class="section-title">Daily spend by service</h2>
+      <span class="section-meta" id="chart-meta"></span>
+    </div>
+    <div class="chart-wrapper" id="chart-wrapper">
+      <canvas id="cost-chart" role="img" aria-label="Daily spend by service chart, loading"></canvas>
+      <div class="chart-empty" id="chart-empty" hidden></div>
+    </div>
+    <details class="table-toggle">
+      <summary>Show chart data as a table</summary>
+      <div class="table-scroll">
+        <table class="data-table" id="chart-table">
+          <caption class="visually-hidden">Daily spend by service, one row per calendar day</caption>
+          <thead></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </details>
+  </section>
 
-async function loadDashboard() {
-  const startTime = performance.now();
+  <section class="card" aria-labelledby="breakdown-title">
+    <div class="section-head">
+      <h2 id="breakdown-title" class="section-title">Service breakdown</h2>
+      <button type="button" class="btn btn-quiet" id="export-btn" disabled>
+        <svg aria-hidden="true" viewBox="0 0 16 16" width="14" height="14"><path d="M8 2v8m0 0 3-3m-3 3L5 7M2.5 11v2.5h11V11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Export CSV
+      </button>
+    </div>
+    <div class="table-scroll">
+      <table class="data-table" id="breakdown-table">
+        <thead>
+          <tr>
+            <th scope="col">Service</th>
+            <th scope="col" class="num">Latest day</th>
+            <th scope="col" class="num">Share of latest day</th>
+            <th scope="col" class="num">Range total</th>
+            <th scope="col" class="num">Change vs previous day</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="table-note" id="breakdown-note"></p>
+  </section>
+</main>
 
-  const [costsRes, alertsRes] = await Promise.all([
-    fetch('/api/costs'),
-    fetch('/api/alerts')
-  ]);
-  const costsPayload = await costsRes.json();
-  const costs = costsPayload.data;
-  const alerts = (await alertsRes.json()).data;
-
-  const loadMs = Math.round(performance.now() - startTime);
-  document.getElementById('load-time').textContent =
-    `Data loaded in ${loadMs}ms · ${costs.length} day(s) of history`;
-
-  renderAlerts(alerts);
-  renderStats(costs);
-  renderChart(costs);
-}
-
-function renderAlerts(alerts) {
-  const box = document.getElementById('alerts');
-  const list = document.getElementById('alerts-list');
-  if (!alerts.length) {
-    box.classList.add('hidden');
-    return;
-  }
-  box.classList.remove('hidden');
-  list.innerHTML = alerts.map(a => {
-    const label = a.level === 'service' ? a.service : 'Total spend';
-    let change;
-    if (a.is_new) {
-      change = `new — $${a.current_cost.toFixed(2)}`;
-    } else {
-      const zText = a.modified_z !== null ? `z=${a.modified_z}` : 'zero-variance window';
-      change = `$${a.previous_cost.toFixed(2)} → $${a.current_cost.toFixed(2)}  (${zText})`;
-    }
-    return `<div class="alert-item"><strong>${label}</strong> — ${a.date}: ${change}</div>`;
-  }).join('');
-}
-
-function renderStats(costs) {
-  if (!costs.length) return;
-  const latest = costs[costs.length - 1];
-  const total = costs.reduce((sum, c) => sum + c.total_cost, 0);
-  document.getElementById('stat-latest').textContent = `$${latest.total_cost.toFixed(2)}`;
-  document.getElementById('stat-total').textContent = `$${total.toFixed(2)}`;
-  document.getElementById('stat-days').textContent = costs.length;
-}
-
-function renderChart(costs) {
-  const labels = costs.map(c => c.date);
-  const serviceNames = [...new Set(costs.flatMap(c => Object.keys(c.services)))];
-
-  const datasets = serviceNames.map((service, i) => ({
-    label: service,
-    data: costs.map(c => c.services[service] || 0),
-    backgroundColor: paletteColors[i % paletteColors.length],
-  }));
-
-  new Chart(document.getElementById('costChart'), {
-    type: 'bar',
-    data: { labels, datasets },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      scales: {
-        x: { stacked: true, ticks: { color: '#9aa0a6' }, grid: { color: '#2a2d38' } },
-        y: { stacked: true, ticks: { color: '#9aa0a6' }, grid: { color: '#2a2d38' } }
-      },
-      plugins: { legend: { labels: { color: '#e6e6e6' } } }
-    }
-  });
-}
-
-loadDashboard();
-</script>
-
+<footer class="statusbar">
+  <p id="status-line" aria-live="off">Loading…</p>
+  <p class="statusbar-note">Detection always runs over the full <span id="history-days">{{ history_days }}</span>-day history window; the range buttons only change what is displayed.</p>
+</footer>
 </body>
 </html>

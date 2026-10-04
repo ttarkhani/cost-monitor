@@ -121,7 +121,7 @@ def create_app():
 
     @app.route('/')
     def dashboard():
-        return render_template('dashboard.html')
+        return render_template('dashboard.html', history_days=HISTORY_DAYS)
 
     @app.route('/api/health')
     def health():
