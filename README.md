@@ -6,6 +6,10 @@ This is a monitoring and alerting tool — it does not claim or estimate cost sa
 
 **Data provenance, stated plainly:** the monitored AWS account is on the free tier. Real Cost Explorer ingestion began on 2026-09-23, and real daily **net** spend as reported by Cost Explorer has been $0.00 or sub-cent on every day observed, far below the detector's $1.00 minimum-increase floor. "Net" matters: the pipeline does not filter out credits or refunds, and this account is funded by AWS credits, so these figures are after credits. They do not show that gross usage was zero (see Known limitations). There are therefore **no real anomalies** in this project's history, and every anomaly-detection result quoted here comes from synthetic, hand-constructed test data, labeled as such.
 
+**Stored data as of 2026-10-04:** three synthetic fixture rows (2026-09-11 to 2026-09-13), written during early testing, were deleted from the table on 2026-10-04. The table now holds 11 consecutive real daily snapshots, 2026-09-23 through 2026-10-03, with no gaps. All values are net spend as reported by Cost Explorer (unfiltered, so including credits and refunds) and effectively $0. The only non-zero line item in the stored data is Amazon Simple Storage Service at about $0.0000000009 on 2026-10-03.
+
+**Live detector status as of 2026-10-04:** the detector is active on live data (10 valid day-to-day changes, 5 of them evaluated) and has flagged nothing. Because every real value is about $0, this shows the pipeline running end to end on real data, **not** detection skill. Detection skill is shown only by the synthetic validation suites.
+
 ## Architecture
 
 ```
@@ -76,7 +80,7 @@ Measured on this project, not estimated.
 **Anomaly detection — synthetic validation suite, in detail:**
 - Stable baseline, single real spike, organic multi-day growth (should *not* be flagged, even though each day individually clears the dollar floor), near-zero free-tier-style noise with one real jump, and a real missed-ingestion gap followed by a real anomaly 4 days later — all correctly handled
 - This is explicitly synthetic, hand-constructed ground truth — not real production incidents. A clean result here means the method is *correct on these known cases*, not a claim that it will be perfect on arbitrary future real data
-- Real account data hasn't produced a genuine verdict yet simply because there isn't enough of it — the detector is built to say nothing rather than guess on too little history
+- On real account data the detector is active (as of 2026-10-04) and has flagged nothing, but every real value is about $0, so that is evidence the pipeline runs on real data, not evidence of detection skill
 
 ## Cost to run
 
@@ -222,7 +226,7 @@ They respond with `{"data": ..., "meta": {...}, "synthetic": true|false}`; `meta
 - Cost Explorer data can change after the pipeline reads it: AWS documents that Cost Explorer "refreshes your cost data at least once every 24 hours" and that "some data might be updated later than 24 hours" ([AWS docs](https://docs.aws.amazon.com/cost-management/latest/userguide/ce-what-is.html)). The pipeline ingests each day once and never re-fetches it, so later revisions to a stored day are not picked up.
 - Per-service detection has been validated only on synthetic data: precision 0.857, recall 1.000, false positive rate 0.006 across 8 scenarios (164 judgments, `test_service_validation.py`). The one false positive shows a real limitation: each increase is judged on its own, so when a service dips for one day and then returns to normal, its **recovery is flagged as a spike**.
 - **Zero-variance windows can hide a repeat spike.** When all earlier day-to-day changes are identical, the median absolute deviation is zero and the detector falls back to flagging only an increase larger than every earlier deviation. In that mode, an earlier spike (and the drop after it) raises the bar, so a later spike of the same size is **missed**. Found while writing `test_pipeline.py` with a short repeating noise pattern; the detector (`backend/alerts.py`) is unchanged, and that test uses irregular noise.
-- EventBridge's *unattended* daily trigger — as opposed to a manual/verification invoke — hasn't been directly observed firing on its own yet as of this writing. The rule, target, and invoke permission are all confirmed correctly configured, and AWS's own mechanics mean it should fire on schedule, but that specific claim is still pending its first real, hands-off occurrence.
+- The unattended EventBridge trigger is supported by strong but indirect evidence. As of 2026-10-04, snapshots exist for every day from 2026-09-25 through 2026-10-02, although none were ingested by hand. The `ingested_at` stamps on two spot-checked rows (the 2026-09-26 row: `2026-09-27T13:00:07.632895`; the 2026-09-30 row: `2026-10-01T13:00:07.641187`) are both about 7.6 seconds after the 13:00 UTC schedule (`cron(0 13 * * ? *)` in `setup_lambda_scheduler.py`) and about 8.3 ms apart. `ingested_at` is written by `cost_fetcher.py` as `datetime.now().isoformat()`, a naive timestamp in the clock's local zone, which on Lambda is UTC. This is strong evidence the schedule fires unattended, but CloudWatch Logs and EventBridge metrics were not inspected, and only two of the eight rows were checked.
 - Single AWS account only — no consolidated billing / multi-account support.
 - Runs on Flask's built-in dev server, not a production WSGI server — this applies to the dashboard-viewing experience only; the actual scheduled ingestion pipeline runs on real AWS Lambda infrastructure, not Flask.
 - Cache is in-memory and single-process — would need Redis to survive a restart or run across multiple processes.
